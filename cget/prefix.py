@@ -182,13 +182,13 @@ class CGetPrefix:
 
     @contextlib.contextmanager
     def create_builder(self, name, tmp=False):
-        pre = ''
-        if tmp: pre = 'tmp-'
+        pre = 'tmp-' if tmp else ''
         d = self.get_builder_path(pre + name)
         exists = os.path.exists(d)
         util.mkdir(d)
         yield Builder(self, d, exists)
-        if tmp: shutil.rmtree(d, ignore_errors=True)
+        if os.name != 'nt' and tmp:
+            shutil.rmtree(d, ignore_errors=True)
 
     def get_package_directory(self, *dirs):
         return self.get_private_path('pkg', *dirs)
