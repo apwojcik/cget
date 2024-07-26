@@ -1,3 +1,7 @@
 click>=6.6
 # PyYAML
 six>=1.10
+subprocess32~=3.5.4
+rich~=13.7.1
+requests~=2.32.3
+furl~=2.1.3

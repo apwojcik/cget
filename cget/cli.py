@@ -5,7 +5,6 @@ from cget.prefix import CGetPrefix
 from cget.prefix import PackageBuild
 import cget.util as util
 
-
 aliases = {
     'rm': 'remove',
     'ls': 'list'
@@ -44,13 +43,15 @@ class AliasedGroup(click.Group):
 @click.version_option(version=__version__, prog_name='cget')
 @click.option('-p', '--prefix', envvar='CGET_PREFIX', help='Set prefix used to install packages')
 @click.option('-v', '--verbose', is_flag=True, envvar='VERBOSE', help="Enable verbose mode")
-@click.option('-B', '--build-path', envvar='CGET_BUILD_PATH', help='Set the path for the build directory to use when building the package')
+@click.option('-B', '--build-path', envvar='CGET_BUILD_PATH',
+              help='Set the path for the build directory to use when building the package')
 @click.pass_context
 def cli(ctx, prefix, verbose, build_path):
     ctx.obj = {}
     if prefix: ctx.obj['PREFIX'] = prefix
     if verbose: ctx.obj['VERBOSE'] = verbose
     if build_path: ctx.obj['BUILD_PATH'] = build_path
+
 
 def use_prefix(f):
     @click.option('-p', '--prefix', help='Set prefix used to install packages')
@@ -61,7 +62,9 @@ def use_prefix(f):
     def w(obj, prefix, verbose, build_path, *args, **kwargs):
         p = CGetPrefix(prefix or obj.get('PREFIX'), verbose or obj.get('VERBOSE'), build_path or obj.get('BUILD_PATH'))
         f(p, *args, **kwargs)
+
     return w
+
 
 @cli.command(name='init')
 @use_prefix
@@ -84,21 +87,23 @@ def init_command(prefix, toolchain, cc, cxx, cflags, cxxflags, ldflags, std, def
     if shared: defines['BUILD_SHARED_LIBS'] = 'On'
     if static: defines['BUILD_SHARED_LIBS'] = 'Off'
     prefix.write_cmake(
-        always_write=True, 
-        toolchain=toolchain, 
+        always_write=True,
+        toolchain=toolchain,
         cc=cc,
         cxx=cxx,
-        cflags=cflags, 
-        cxxflags=cxxflags, 
-        ldflags=ldflags, 
-        std=std, 
+        cflags=cflags,
+        cxxflags=cxxflags,
+        ldflags=ldflags,
+        std=std,
         defines=defines)
+
 
 @cli.command(name='install')
 @use_prefix
 @click.option('-U', '--update', is_flag=True, help="Update package")
 @click.option('-t', '--test', is_flag=True, help="Test package before installing by running ctest or check target")
-@click.option('--test-all', is_flag=True, help="Test all packages including its dependencies before installing by running ctest or check target")
+@click.option('--test-all', is_flag=True,
+              help="Test all packages including its dependencies before installing by running ctest or check target")
 @click.option('-f', '--file', default=None, help="Install packages listed in the file")
 @click.option('-D', '--define', multiple=True, help="Extra configuration variables to pass to CMake")
 @click.option('-G', '--generator', envvar='CGET_GENERATOR', help='Set the generator for CMake to use')
@@ -108,18 +113,23 @@ def init_command(prefix, toolchain, cc, cxx, cflags, cxxflags, ldflags, std, def
 @click.option('--build-type', help="Install custom version [Release, Debug, RelWithDebInfo or other cmake build type]")
 @click.option('--insecure', is_flag=True, help="Don't use https urls")
 @click.argument('pkgs', nargs=-1, type=click.STRING)
-def install_command(prefix, pkgs, define, file, test, test_all, update, generator, cmake, debug, release, build_type, insecure):
+def install_command(prefix, pkgs, define, file, test, test_all, update, generator, cmake, debug, release, build_type,
+                    insecure):
     """ Install packages """
     variant = get_build_type(debug, release, build_type)
     if not file and not pkgs:
-        if os.path.exists('dev-requirements.txt'): file = 'dev-requirements.txt'
-        else: file = 'requirements.txt'
+        if os.path.exists('dev-requirements.txt'):
+            file = 'dev-requirements.txt'
+        else:
+            file = 'requirements.txt'
     pbs = [PackageBuild(pkg, cmake=cmake, variant=variant) for pkg in pkgs]
     for pbu in util.flat([prefix.from_file(file), pbs]):
         pb = pbu.merge_defines(define)
         pb.variant = variant
         with prefix.try_("Failed to build package {}".format(pb.to_name()), on_fail=lambda: prefix.remove(pb)):
-            click.echo(prefix.install(pb, test=test, test_all=test_all, update=update, generator=generator, insecure=insecure))
+            click.echo(
+                prefix.install(pb, test=test, test_all=test_all, update=update, generator=generator, insecure=insecure))
+
 
 @cli.command(name='ignore')
 @use_prefix
@@ -130,6 +140,7 @@ def ignore_command(prefix, pkgs):
     for pb in pbs:
         with prefix.try_("Failed to ignore package {}".format(pb.to_name()), on_fail=lambda: prefix.remove(pb)):
             click.echo(prefix.ignore(pb))
+
 
 @cli.command(name='build')
 @use_prefix
@@ -145,17 +156,22 @@ def ignore_command(prefix, pkgs):
 @click.option('--release', is_flag=True, help="Build release version")
 @click.option('--build-type', help="Install custom version [Release, Debug, RelWithDebInfo or other cmake build type]")
 @click.argument('pkg', nargs=1, default='.', type=click.STRING)
-def build_command(prefix, pkg, define, test, configure, clean, path, yes, target, generator, debug, release, build_type):
+def build_command(prefix, pkg, define, test, configure, clean, path, yes, target, generator, debug, release,
+                  build_type):
     """ Build package """
     pb = PackageBuild(pkg).merge_defines(define)
     pb.variant = get_build_type(debug, release, build_type)
     with prefix.try_("Failed to build package {}".format(pb.to_name())):
-        if configure: prefix.build_configure(pb)
-        elif path: click.echo(prefix.build_path(pb))
-        elif clean: 
+        if configure:
+            prefix.build_configure(pb)
+        elif path:
+            click.echo(prefix.build_path(pb))
+        elif clean:
             if not yes: yes = click.confirm("Are you sure you want to delete the build directory?")
             if yes: prefix.build_clean(pb)
-        else: prefix.build(pb, test=test, target=target, generator=generator)
+        else:
+            prefix.build(pb, test=test, target=target, generator=generator)
+
 
 @cli.command(name='remove')
 @use_prefix
@@ -177,12 +193,14 @@ def remove_command(prefix, pkgs, yes, unlink, all):
                 prefix.unlink(pkg, delete=not unlink)
                 click.echo("{} package {}".format(verb, pkg))
 
+
 @cli.command(name='list')
 @use_prefix
 def list_command(prefix):
     """ List installed packages """
     for pkg in prefix.list():
         click.echo(pkg.name)
+
 
 # TODO: Make this command hidden
 @cli.command(name='size')
@@ -193,6 +211,7 @@ def size_command(prefix, n):
     if pkgs != int(n):
         raise util.BuildError("Not the correct number of items: {}".format(pkgs))
 
+
 @cli.command(name='clean')
 @use_prefix
 @click.option('-y', '--yes', is_flag=True, default=False)
@@ -202,8 +221,10 @@ def clean_command(prefix, yes, cache):
     if cache:
         prefix.clean_cache()
     else:
-        if not yes: yes = click.confirm("Are you sure you want to delete all cget packages in {}?".format(prefix.prefix))
+        if not yes: yes = click.confirm(
+            "Are you sure you want to delete all cget packages in {}?".format(prefix.prefix))
         if yes: prefix.clean()
+
 
 @cli.command(name='pkg-config', context_settings=dict(
     ignore_unknown_options=True,
@@ -217,4 +238,3 @@ def pkg_config_command(prefix, args):
 
 if __name__ == '__main__':
     cli()
-

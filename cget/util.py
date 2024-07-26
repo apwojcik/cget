@@ -1,4 +1,10 @@
-import click, os, sys, shutil, json, six, hashlib, ssl
+import click, os, sys, shutil, json, six, hashlib, ssl, requests
+from rich.progress import (
+    Progress, SpinnerColumn, DownloadColumn, TextColumn, FileSizeColumn,
+    TotalFileSizeColumn, BarColumn, TransferSpeedColumn, TimeRemainingColumn)
+
+from pathlib import Path
+from furl import furl
 
 if sys.version_info[0] < 3:
     try:
@@ -18,32 +24,111 @@ else:
 
 from six.moves.urllib import request
 
+
 def to_bool(value):
     x = str(value).lower()
-    if x in ("no",  "n", "false", "f", "0", "0.0", "", "none", "[]", "{}"): return False
+    if x in ("no", "n", "false", "f", "0", "0.0", "", "none", "[]", "{}"): return False
     return True
 
-USE_SYMLINKS=to_bool(os.environ.get('CGET_USE_SYMLINKS', (os.name == 'posix')))
-USE_CMAKE_TAR=to_bool(os.environ.get('CGET_USE_CMAKE_TAR', True))
+
+USE_SYMLINKS = to_bool(os.environ.get('CGET_USE_SYMLINKS', (os.name == 'posix')))
+USE_CMAKE_TAR = to_bool(os.environ.get('CGET_USE_CMAKE_TAR', True))
 
 __CGET_DIR__ = os.path.dirname(os.path.realpath(__file__))
+
 
 def cget_dir(*args):
     return os.path.join(__CGET_DIR__, *args)
 
+
 def is_string(obj):
     return isinstance(obj, six.string_types)
 
+
 def quote(s):
+    if not isinstance(s, str):
+        s = str(s)
     return json.dumps(s)
+
+
+class ExtractProgress:
+    """Progress bar class for archive extraction."""
+
+    def __init__(self, filename, total: float) -> None:
+        self.progress = Progress(
+            SpinnerColumn(),
+            TextColumn('[progress.description]{task.fields[filename]}'),
+            BarColumn(),
+            TextColumn('[progress.percentage]{task.percentage:3.1f}%'),
+            '•',
+            FileSizeColumn(),
+            'of',
+            TotalFileSizeColumn(),
+            '•',
+            TimeRemainingColumn()
+        )
+        self.progress.start()
+        self.active_task = self.progress.add_task(
+            'extract', filename=filename, total=total, message='')
+
+    def __del__(self) -> None:
+        self.progress.stop()
+
+    def update(self, advance: float):
+        """Update a progress bar."""
+        self.progress.update(self.active_task, advance=advance)
+
+
+class CallbackIOWrapper:  # pylint: disable=too-few-public-methods
+    """Wrapper for IO operations."""
+
+    def __init__(self, progress: ExtractProgress, inf) -> None:
+        self.progress = progress
+        self.inf = inf
+
+    def read(self, size: int) -> bytes:
+        """Read bytes from input stream and update progress bar."""
+        buffer = self.inf.read(size)
+        self.progress.update(advance=len(buffer))
+        return buffer
+
+
+class DownloadProgress:
+    """Progress bar class for archive downloader."""
+
+    def __init__(self, filename, total: float) -> None:
+        self.progress = Progress(
+            SpinnerColumn(),
+            TextColumn('[progress.description]{task.fields[filename]}'),
+            BarColumn(),
+            TextColumn('[progress.percentage]{task.percentage:>3.1f}%'),
+            '•',
+            DownloadColumn(),
+            '•',
+            TransferSpeedColumn(),
+            '•',
+            TimeRemainingColumn()
+        )
+        self.progress.start()
+        self.task_id = self.progress.add_task(
+            'download', filename=filename, total=total, message='')
+
+    def __del__(self) -> None:
+        self.progress.stop()
+
+    def update(self, advance: float) -> None:
+        """Update a progress bar."""
+        self.progress.update(self.task_id, advance=advance)
+
 
 class BuildError(Exception):
     def __init__(self, msg=None, data=None):
         self.msg = msg
         self.data = data
+
     def __str__(self):
-        if None: return "Build failed"
-        else: return self.msg
+        return "Build failed" if None else self.msg
+
 
 def ensure_exists(f):
     if not f:
@@ -51,12 +136,14 @@ def ensure_exists(f):
     if not os.path.exists(f):
         raise BuildError("File does not exists: " + f)
 
+
 def can(f):
     try:
         f()
         return True
     except:
         return False
+
 
 def try_until(*args):
     for arg in args[:-1]:
@@ -70,44 +157,53 @@ def try_until(*args):
     except:
         raise
 
+
 def write_to(file, lines):
     content = list((line + "\n" for line in lines))
-    if (len(content) > 0):
+    if len(content) > 0:
         with open(file, 'w') as f:
             f.writelines(content)
+
 
 def mkdir(p):
     if not os.path.exists(p): os.makedirs(p)
     return p
 
-def mkfile(d, file, content, always_write=True):
+
+def mkfile(d: Path, file, content, always_write=True):
     mkdir(d)
-    p = os.path.join(d, file)
-    if not os.path.exists(p) or always_write:
+    p = d / file
+    if not p.exists() or always_write:
         write_to(p, content)
     return p
 
-def ls(p, predicate=lambda x:True):
+
+def ls(p, predicate=lambda x: True):
     if os.path.exists(p):
         return (d for d in os.listdir(p) if predicate(os.path.join(p, d)))
     else:
         return []
 
+
 def get_app_dir(*args):
     return os.path.join(click.get_app_dir('cget'), *args)
+
 
 def get_cache_path(*args):
     return get_app_dir('cache', *args)
 
+
 def adjust_path(p):
-    # Prefixing path to avoid problems with long paths on windows
+    # Prefixing a path to avoid problems with long paths on windows
     if 'nt' in os.name and os.path.isabs(p) and not p.startswith("\\\\?\\"):
         return "\\\\?\\" + p
     return p
 
+
 def add_cache_file(key, f):
     mkdir(get_cache_path(key))
     shutil.copy2(f, get_cache_path(key, os.path.basename(f)))
+
 
 def get_cache_file(key):
     p = get_cache_path(key)
@@ -116,8 +212,10 @@ def get_cache_file(key):
     else:
         return None
 
+
 def delete_dir(path):
     if path is not None and os.path.exists(path): shutil.rmtree(adjust_path(path))
+
 
 def symlink_dir(src, dst):
     for root, dirs, files in os.walk(src):
@@ -137,6 +235,7 @@ def symlink_dir(src, dst):
             except:
                 raise BuildError("Failed to link: {} -> {}".format(os.path.join(root, file), os.path.join(d, file)))
 
+
 def copy_dir(src, dst):
     for root, dirs, files in os.walk(src):
         for file in files:
@@ -146,16 +245,19 @@ def copy_dir(src, dst):
             src_file = os.path.join(root, file)
             shutil.copy2(adjust_path(src_file), os.path.join(d, file))
 
+
 def readlink(file):
     f = os.readlink(file)
     if not os.path.isabs(f):
         f = os.path.normpath(os.path.join(os.path.dirname(file), f))
     return f
 
+
 def rm_symlink(file):
     if os.path.islink(file):
         f = readlink(file)
         if not os.path.exists(f): os.remove(file)
+
 
 def rm_symlink_in(file, prefix):
     if os.path.islink(file):
@@ -163,16 +265,19 @@ def rm_symlink_in(file, prefix):
         if f.startswith(prefix):
             os.remove(file)
 
+
 def rm_symlink_dir(d):
     for root, dirs, files in os.walk(d):
         for file in files:
             rm_symlink(os.path.join(root, file))
+
 
 def rm_symlink_from(d, prefix):
     for root, dirs, files in os.walk(prefix):
         if not root.startswith(d):
             for file in files:
                 rm_symlink_in(os.path.join(root, file), d)
+
 
 def rm_dup_dir(d, prefix, remove_both=True):
     for root, dirs, files in os.walk(d):
@@ -183,6 +288,7 @@ def rm_dup_dir(d, prefix, remove_both=True):
                 raise BuildError('Trying to remove link outside of prefix directory: ' + relpath)
             os.remove(os.path.join(prefix, relpath))
             if remove_both: os.remove(fullpath)
+
 
 def rm_empty_dirs(d):
     has_files = False
@@ -195,19 +301,25 @@ def rm_empty_dirs(d):
     if not has_files: os.rmdir(d)
     return has_files
 
+
 def get_dirs(d):
-    return (os.path.join(d,o) for o in os.listdir(d) if os.path.isdir(os.path.join(d,o)))
+    return (os.path.join(d, o) for o in os.listdir(d) if os.path.isdir(os.path.join(d, o)))
+
 
 def copy_to(src, dst_dir):
     target = os.path.join(dst_dir, os.path.basename(src))
-    if os.path.isfile(src): shutil.copyfile(src, target)
-    else: shutil.copytree(src, target)
+    if os.path.isfile(src):
+        shutil.copyfile(src, target)
+    else:
+        shutil.copytree(src, target)
     return target
+
 
 def symlink_to(src, dst_dir):
     target = os.path.join(dst_dir, os.path.basename(src))
     os.symlink(src, target)
     return target
+
 
 class CGetURLOpener(request.FancyURLopener):
     def http_error_default(self, url, fp, errcode, errmsg, headers):
@@ -215,29 +327,33 @@ class CGetURLOpener(request.FancyURLopener):
             raise BuildError("Download failed with error {0} for: {1}".format(errcode, url))
         return request.FancyURLopener.http_error_default(self, url, fp, errcode, errmsg, headers)
 
+
 def download_to(url, download_dir, insecure=False):
-    name = url.split('/')[-1]
-    file = os.path.join(download_dir, name)
+    if not isinstance(url, furl):
+        url = furl(url)
     click.echo("Downloading {0}".format(url))
-    bar_len = 1000
-    with click.progressbar(length=bar_len, width=70) as bar:
-        def hook(count, block_size, total_size):
-            percent = int(count*block_size*bar_len/total_size)
-            if percent > 0 and percent < bar_len:
-                # Hack because we can't set the position
-                bar.pos = percent
-                bar.update(0)
-        context = None
-        if insecure: context = ssl._create_unverified_context()
-        CGetURLOpener(context=context).retrieve(url, filename=file, reporthook=hook, data=None)
-        bar.update(bar_len)
-    if not os.path.exists(file):
+    if isinstance(download_dir, str):
+        download_dir = Path(download_dir)
+    download_dir /= url.path.segments[-1]
+    resp = requests.get(url.url, stream=True, timeout=3600)
+    if resp.status_code != 200:
+        return False
+    total = int(resp.headers.get('content-length', 0))
+    progress = DownloadProgress(download_dir.name, total=total)
+    with open(download_dir, 'wb') as file:
+        for chunk in resp.iter_content(chunk_size=1024):
+            progress.update(file.write(chunk))
+    if not os.path.exists(download_dir):
         raise BuildError("Download failed for: {0}".format(url))
-    return file
+    return str(download_dir)
+
 
 def transfer_to(f, dst, copy=False):
-    if USE_SYMLINKS and not copy: return symlink_to(f, dst)
-    else: return copy_to(f, dst)
+    if USE_SYMLINKS and not copy:
+        return symlink_to(f, dst)
+    else:
+        return copy_to(f, dst)
+
 
 def retrieve_url(url, dst, copy=False, insecure=False, hash=None):
     remote = not url.startswith('file://')
@@ -254,13 +370,14 @@ def retrieve_url(url, dst, copy=False, insecure=False, hash=None):
             raise BuildError("Hash doesn't match for {0}: {1}".format(url, hash))
     return f
 
+
 def extract_ar(archive, dst, *kwargs):
     if sys.version_info[0] < 3 and archive.endswith('.xz'):
         with contextlib.closing(lzma.LZMAFile(archive)) as xz:
             with tarfile.open(fileobj=xz, *kwargs) as f:
                 f.extractall(dst)
     elif archive.endswith('.zip'):
-        with zipfile.ZipFile(archive,'r') as f:
+        with zipfile.ZipFile(archive, 'r') as f:
             f.extractall(dst)
     elif tarfile.is_tarfile(archive):
         if USE_CMAKE_TAR:
@@ -273,24 +390,30 @@ def extract_ar(archive, dst, *kwargs):
         mkdir(d)
         copy_to(archive, d)
 
+
 def hash_file(f, t):
     h = hashlib.new(t)
     h.update(open(f, 'rb').read())
     return h.hexdigest()
 
+
 def check_hash(f, hash):
     t, h = hash.lower().split(':')
     return hash_file(f, t) == h
 
+
 def which(p, paths=None, throws=True):
-    exes = [p+x for x in ['', '.exe', '.bat']]
-    for dirname in list(paths or [])+os.environ['PATH'].split(os.pathsep):
+    exes = [p + x for x in ['', '.exe', '.bat']]
+    for dirname in list(paths or []) + os.environ['PATH'].split(os.pathsep):
         for exe in exes:
             candidate = os.path.join(os.path.expanduser(dirname), exe)
             if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
                 return candidate
-    if throws: raise BuildError("Can't find file %s" % p)
-    else: return None
+    if throws:
+        raise BuildError("Can't find file %s" % p)
+    else:
+        return None
+
 
 def merge(*args):
     result = {}
@@ -298,16 +421,20 @@ def merge(*args):
         result.update(dict(d or {}))
     return result
 
+
 def flat(*args):
     for arg in args:
         for x in arg:
             for y in x: yield y
 
+
 def yield_from(f):
     @six.wraps(f)
     def g(*args, **kwargs):
         return flat(f(*args, **kwargs))
+
     return g
+
 
 def cmd(args, env=None, capture=None, **kwargs):
     e = merge(os.environ, env)
@@ -322,9 +449,13 @@ def cmd(args, env=None, capture=None, **kwargs):
         raise BuildError(msg='Command failed: ' + str(args), data=e)
     return out
 
+
 def as_list(x):
-    if is_string(x): return [x]
-    else: return list(x)
+    if is_string(x):
+        return [x]
+    else:
+        return list(x)
+
 
 def to_define_dict(xs):
     result = {}
@@ -336,16 +467,19 @@ def to_define_dict(xs):
             result[x] = ''
     return result
 
+
 def as_dict_str(d):
     result = {}
     for x in d:
         result[x] = str(d[x])
     return result
 
+
 def actual_path(path, start=None):
     if os.path.isabs(path):
         return path
     return os.path.normpath(os.path.join(start or os.getcwd(), os.path.expanduser(path)))
+
 
 class Commander:
     def __init__(self, paths=None, env=None, verbose=False):
@@ -355,8 +489,9 @@ class Commander:
 
     def _get_paths_env(self):
         if self.paths is not None:
-            return { 'PATH': os.pathsep.join(list(self.paths)+[os.environ['PATH']]) }
-        else: return None
+            return {'PATH': os.pathsep.join([str(path) for path in self.paths] + [os.environ['PATH']])}
+        else:
+            return None
 
     def _cmd(self, name, args=None, options=None, env=None, **kwargs):
         exe = which(name, self.paths)
@@ -367,13 +502,16 @@ class Commander:
 
     def __getattr__(self, name):
         c = name.replace('_', '-')
+
         def f(*args, **kwargs):
             return self._cmd(c, *args, **kwargs)
+
         return f
 
     def __getitem__(self, name):
         def f(*args, **kwargs):
             return self._cmd(name, *args, **kwargs)
+
         return f
 
     def __contains__(self, name):
