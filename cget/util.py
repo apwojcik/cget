@@ -193,10 +193,10 @@ def get_cache_path(*args):
     return get_app_dir('cache', *args)
 
 
-def adjust_path(p):
+def adjust_path(p: Path):
     # Prefixing a path to avoid problems with long paths on windows
-    if 'nt' in os.name and os.path.isabs(p) and not p.startswith("\\\\?\\"):
-        return "\\\\?\\" + p
+    if 'nt' in os.name and p.is_absolute() and not str(p).startswith("\\\\?\\"):
+        return "\\\\?\\" + str(p)
     return p
 
 
