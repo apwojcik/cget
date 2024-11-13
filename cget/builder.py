@@ -67,6 +67,7 @@ class Builder:
             args.extend(['-DBUILD_TESTING=Off'])
         args.extend(['-DCMAKE_BUILD_TYPE={}'.format(variant or 'Release')])
         if install_prefix is not None: args.extend(['-DCMAKE_INSTALL_PREFIX=' + str(install_prefix)])
+        args.extend(['-Wno-deprecated', '-Wno-dev'])
         try:
             self.cmake(args=args, cwd=self.build_dir, use_toolchain=True)
         except:
