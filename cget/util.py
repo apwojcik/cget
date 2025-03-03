@@ -348,7 +348,7 @@ def download_to(url: str | furl, download_dir: str | Path, insecure=False) -> Pa
             progress.update(file.write(chunk))
     if not os.path.exists(download_dir):
         raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
-    return download_dir
+    return Path(download_dir)
 
 
 def transfer_to(f, dst, copy=False):
@@ -375,7 +375,7 @@ def retrieve_url(url: str | furl, dst, copy=False, insecure=False, hash=None) ->
                 add_cache_file(hash.replace(':', '-'), f)
         else:
             raise BuildError("Hash doesn't match for {0}: {1}".format(url, hash))
-    return f
+    return Path(f)
 
 
 def extract_ar(archive: str | Path, dst, *kwargs):
