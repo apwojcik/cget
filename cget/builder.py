@@ -45,7 +45,7 @@ class Builder:
         self.prefix.log("fetch:", url)
         if insecure: url = url.replace('https', 'http')
         f = util.retrieve_url(url, self.top_dir, copy=copy, insecure=insecure, hash=hash)
-        if os.path.isfile(f):
+        if f.is_file():
             with display.status("Extracting archive..."):
                 util.extract_ar(archive=f, dst=self.top_dir)
         return next(util.get_dirs(self.top_dir))
