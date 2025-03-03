@@ -290,15 +290,18 @@ def rm_dup_dir(d, prefix, remove_both=True):
             if remove_both: os.remove(fullpath)
 
 
-def rm_empty_dirs(d):
+def rm_empty_dirs(d: str | Path) -> bool:
+    if not isinstance(d, Path):
+        d = Path(d)
     has_files = False
-    for x in os.listdir(d):
-        p = os.path.join(d, x)
-        if os.path.isdir(p) and not os.path.islink(p):
+    for x in d.iterdir():
+        p = d / x
+        if p.is_dir() and not p.is_symlink():
             has_files = has_files or rm_empty_dirs(p)
         else:
             has_files = True
-    if not has_files: os.rmdir(d)
+    if not has_files:
+        d.rmdir()
     return has_files
 
 
@@ -306,18 +309,18 @@ def get_dirs(d):
     return (os.path.join(d, o) for o in os.listdir(d) if os.path.isdir(os.path.join(d, o)))
 
 
-def copy_to(src, dst_dir):
-    target = os.path.join(dst_dir, os.path.basename(src))
-    if os.path.isfile(src):
+def copy_to(src: Path, dst_dir: Path) -> Path:
+    target = dst_dir / src.name
+    if src.is_file():
         shutil.copyfile(src, target)
     else:
         shutil.copytree(src, target)
     return target
 
 
-def symlink_to(src, dst_dir):
-    target = os.path.join(dst_dir, os.path.basename(src))
-    os.symlink(src, target)
+def symlink_to(src: Path, dst_dir: Path) -> Path:
+    target = dst_dir / src.name
+    target.symlink_to(src)
     return target
 
 
@@ -328,7 +331,7 @@ class CGetURLOpener(request.FancyURLopener):
         return request.FancyURLopener.http_error_default(self, url, fp, errcode, errmsg, headers)
 
 
-def download_to(url, download_dir, insecure=False):
+def download_to(url: str | furl, download_dir: str | Path, insecure=False) -> Path:
     if not isinstance(url, furl):
         url = furl(url)
     click.echo("Downloading {0}".format(url))
@@ -337,15 +340,15 @@ def download_to(url, download_dir, insecure=False):
     download_dir /= url.path.segments[-1]
     resp = requests.get(url.url, stream=True, timeout=3600)
     if resp.status_code != 200:
-        return False
+        raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
     total = int(resp.headers.get('content-length', 0))
     progress = DownloadProgress(download_dir.name, total=total)
     with open(download_dir, 'wb') as file:
         for chunk in resp.iter_content(chunk_size=1024):
             progress.update(file.write(chunk))
     if not os.path.exists(download_dir):
-        raise BuildError("Download failed for: {0}".format(url))
-    return str(download_dir)
+        raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
+    return download_dir
 
 
 def transfer_to(f, dst, copy=False):
@@ -355,28 +358,34 @@ def transfer_to(f, dst, copy=False):
         return copy_to(f, dst)
 
 
-def retrieve_url(url, dst, copy=False, insecure=False, hash=None):
-    remote = not url.startswith('file://')
+def retrieve_url(url: str | furl, dst, copy=False, insecure=False, hash=None) -> Path:
+    if not isinstance(url, furl):
+        url = furl(url)
+    remote = url.scheme is not None and url.scheme not in ['file', '']
     # Retrieve from cache
     if remote and hash:
         f = get_cache_file(hash.replace(':', '-'))
-        if f: return f
+        if f:
+            return f
     f = download_to(url, dst, insecure=insecure) if remote else transfer_to(url[7:], dst, copy=copy)
-    if os.path.isfile(f) and hash:
+    if f.is_file() and hash:
         click.echo("Computing hash: {}".format(hash))
         if check_hash(f, hash):
-            if remote: add_cache_file(hash.replace(':', '-'), f)
+            if remote:
+                add_cache_file(hash.replace(':', '-'), f)
         else:
             raise BuildError("Hash doesn't match for {0}: {1}".format(url, hash))
     return f
 
 
-def extract_ar(archive, dst, *kwargs):
-    if sys.version_info[0] < 3 and archive.endswith('.xz'):
+def extract_ar(archive: str | Path, dst, *kwargs):
+    if not isinstance(archive, Path):
+        archive = Path(archive)
+    if sys.version_info[0] < 3 and archive.suffix == '.xz':
         with contextlib.closing(lzma.LZMAFile(archive)) as xz:
             with tarfile.open(fileobj=xz, *kwargs) as f:
                 f.extractall(dst)
-    elif archive.endswith('.zip'):
+    elif archive.suffix == '.zip':
         with zipfile.ZipFile(archive, 'r') as f:
             f.extractall(dst)
     elif tarfile.is_tarfile(archive):
