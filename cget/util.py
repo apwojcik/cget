@@ -366,7 +366,7 @@ def retrieve_url(url: str | furl, dst, copy=False, insecure=False, hash=None) ->
     if remote and hash:
         f = get_cache_file(hash.replace(':', '-'))
         if f:
-            return f
+            return Path(f)
     f = download_to(url, dst, insecure=insecure) if remote else transfer_to(url[7:], dst, copy=copy)
     if f.is_file() and hash:
         click.echo("Computing hash: {}".format(hash))
