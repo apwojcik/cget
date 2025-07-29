@@ -56,7 +56,7 @@ def cmake_set(var, val, quote=True, cache=None, description=None):
     if cache is None or cache.lower() == 'none':
         yield f'set({var} {val})'
     else:
-        yield f'set({var} {val} CACHE {cache} "{description or ''}")'
+        yield f'set({var} {val} CACHE {cache} ""{description or ""}"")'
 
 
 def cmake_append(var, *vals, **kwargs):
