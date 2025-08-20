@@ -287,7 +287,7 @@ class CGetPrefix:
         p.pkg_src.recipe = None
         # Use original name
         if pkg:
-            p.pkg_src.name = pkg.pkg_src.name
+            p.pkg_src.name = pkg
         elif name:
             p.pkg_src.name = name
 
