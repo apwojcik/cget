@@ -273,7 +273,7 @@ class CGetPrefix:
         else:
             pkg_src = self.parse_pkg_src(pkg, start, no_recipe)
             if pkg_src.recipe:
-                return self.from_recipe(pkg_src.recipe, pkg_src.name)
+                return self.from_recipe(pkg_src.recipe, name=pkg_src.name)
             else:
                 return PackageBuild(pkg_src)
 
@@ -287,7 +287,7 @@ class CGetPrefix:
         p.pkg_src.recipe = None
         # Use original name
         if pkg:
-            p.pkg_src.name = pkg
+            p.pkg_src.name = pkg.pkg_src.name
         elif name:
             p.pkg_src.name = name
 

@@ -262,7 +262,7 @@ def rm_symlink(file):
 def rm_symlink_in(file, prefix):
     if os.path.islink(file):
         f = readlink(file)
-        if f.startswith(prefix):
+        if f.startswith(str(prefix)):
             os.remove(file)
 
 
