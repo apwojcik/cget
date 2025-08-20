@@ -274,7 +274,7 @@ def rm_symlink_dir(d):
 
 def rm_symlink_from(d, prefix):
     for root, dirs, files in os.walk(prefix):
-        if not root.startswith(d):
+        if not root.startswith(str(d)):
             for file in files:
                 rm_symlink_in(os.path.join(root, file), d)
 
