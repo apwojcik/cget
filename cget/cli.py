@@ -221,9 +221,10 @@ def clean_command(prefix, yes, cache):
     if cache:
         prefix.clean_cache()
     else:
-        if not yes: yes = click.confirm(
-            "Are you sure you want to delete all cget packages in {}?".format(prefix.prefix))
-        if yes: prefix.clean()
+        if not yes:
+            yes = click.confirm("Are you sure you want to delete all cget packages in {}?".format(prefix.prefix))
+        if yes:
+            prefix.clean()
 
 
 @cli.command(name='pkg-config', context_settings=dict(

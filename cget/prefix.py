@@ -1,4 +1,5 @@
 import os, shutil, shlex, six, inspect, click, contextlib, sys, functools
+import platform
 from pathlib import Path
 from typing import List
 
@@ -485,7 +486,7 @@ class CGetPrefix:
                     yield child
 
     def clean(self):
-        if util.USE_SYMLINKS:
+        if util.USE_SYMLINKS or platform.system() == 'Windows':
             util.delete_dir(self.get_private_path())
             util.rm_symlink_dir(self.prefix)
             util.rm_empty_dirs(self.prefix)
