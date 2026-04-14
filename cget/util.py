@@ -1,4 +1,7 @@
-import click, os, sys, shutil, json, six, hashlib, ssl
+import click, os, sys, shutil, json, six, hashlib, requests
+from pathlib import Path
+from furl import furl
+from display import DownloadProgress
 
 if sys.version_info[0] < 3:
     try:
@@ -37,15 +40,19 @@ def is_string(obj):
     return isinstance(obj, six.string_types)
 
 def quote(s):
+    if not isinstance(s, str):
+        s = str(s)
     return json.dumps(s)
+
 
 class BuildError(Exception):
     def __init__(self, msg=None, data=None):
         self.msg = msg
         self.data = data
+
     def __str__(self):
-        if None: return "Build failed"
-        else: return self.msg
+        return "Build failed" if None else self.msg
+
 
 def ensure_exists(f):
     if not f:
@@ -74,7 +81,7 @@ def try_until(*args):
 
 def write_to(file, lines):
     content = list((line + "\n" for line in lines))
-    if (len(content) > 0):
+    if len(content) > 0:
         with open(file, 'w') as f:
             f.writelines(content)
 
@@ -82,10 +89,10 @@ def mkdir(p):
     if not os.path.exists(p): os.makedirs(p)
     return p
 
-def mkfile(d, file, content, always_write=True):
+def mkfile(d: Path, file, content, always_write=True):
     mkdir(d)
-    p = os.path.join(d, file)
-    if not os.path.exists(p) or always_write:
+    p = d / file
+    if not p.exists() or always_write:
         write_to(p, content)
     return p
 
@@ -101,10 +108,10 @@ def get_app_dir(*args):
 def get_cache_path(*args):
     return get_app_dir('cache', *args)
 
-def adjust_path(p):
+def adjust_path(p: Path):
     # Prefixing path to avoid problems with long paths on windows
-    if 'nt' in os.name and os.path.isabs(p) and not p.startswith("\\\\?\\"):
-        return "\\\\?\\" + p
+    if 'nt' in os.name and p.is_absolute() and not str(p).startswith("\\\\?\\"):
+        return "\\\\?\\" + str(p)
     return p
 
 def add_cache_file(key, f):
@@ -162,7 +169,7 @@ def rm_symlink(file):
 def rm_symlink_in(file, prefix):
     if os.path.islink(file):
         f = readlink(file)
-        if f.startswith(prefix):
+        if f.startswith(str(prefix)):
             os.remove(file)
 
 def rm_symlink_dir(d):
@@ -172,7 +179,7 @@ def rm_symlink_dir(d):
 
 def rm_symlink_from(d, prefix):
     for root, dirs, files in os.walk(prefix):
-        if not root.startswith(d):
+        if not root.startswith(str(d)):
             for file in files:
                 rm_symlink_in(os.path.join(root, file), d)
 
@@ -186,29 +193,31 @@ def rm_dup_dir(d, prefix, remove_both=True):
             os.remove(os.path.join(prefix, relpath))
             if remove_both: os.remove(fullpath)
 
-def rm_empty_dirs(d):
+def rm_empty_dirs(d: str | Path) -> bool:
+    if not isinstance(d, Path):
+        d = Path(d)
     has_files = False
-    for x in os.listdir(d):
-        p = os.path.join(d, x)
-        if os.path.isdir(p) and not os.path.islink(p):
+    for x in d.iterdir():
+        p = d / x
+        if p.is_dir() and not p.is_symlink():
             has_files = has_files or rm_empty_dirs(p)
         else:
             has_files = True
-    if not has_files: os.rmdir(d)
+    if not has_files: d.rmdir()
     return has_files
 
 def get_dirs(d):
     return (os.path.join(d,o) for o in os.listdir(d) if os.path.isdir(os.path.join(d,o)))
 
-def copy_to(src, dst_dir):
-    target = os.path.join(dst_dir, os.path.basename(src))
-    if os.path.isfile(src): shutil.copyfile(src, target)
+def copy_to(src: Path, dst_dir: Path) -> Path:
+    target = dst_dir / src.name
+    if src.is_file(): shutil.copyfile(src, target)
     else: shutil.copytree(src, target)
     return target
 
-def symlink_to(src, dst_dir):
-    target = os.path.join(dst_dir, os.path.basename(src))
-    os.symlink(src, target)
+def symlink_to(src: Path, dst_dir: Path) -> Path:
+    target = dst_dir / src.name
+    target.symlink_to(src)
     return target
 
 class CGetURLOpener(request.FancyURLopener):
@@ -217,52 +226,55 @@ class CGetURLOpener(request.FancyURLopener):
             raise BuildError("Download failed with error {0} for: {1}".format(errcode, url))
         return request.FancyURLopener.http_error_default(self, url, fp, errcode, errmsg, headers)
 
-def download_to(url, download_dir, insecure=False):
-    name = url.split('/')[-1]
-    file = os.path.join(download_dir, name)
+def download_to(url: str | furl, download_dir: str | Path, insecure=False) -> Path:
+    if not isinstance(url, furl):
+        url = furl(url)
     display.info("Downloading [bold]{}[/bold]".format(url))
-    with display.create_download_progress() as progress:
-        task = progress.add_task(name, total=None)
-        def hook(count, block_size, total_size):
-            if total_size > 0:
-                progress.update(task, total=total_size, completed=min(count * block_size, total_size))
-            else:
-                progress.update(task, completed=count * block_size)
-        context = None
-        if insecure: context = ssl._create_unverified_context()
-        CGetURLOpener(context=context).retrieve(url, filename=file, reporthook=hook, data=None)
-        if progress.tasks[0].total is not None:
-            progress.update(task, completed=progress.tasks[0].total)
-    if not os.path.exists(file):
-        raise BuildError("Download failed for: {0}".format(url))
-    return file
+    if isinstance(download_dir, str):
+        download_dir = Path(download_dir)
+    download_dir /= url.path.segments[-1]
+    resp = requests.get(url.url, stream=True, timeout=3600)
+    if resp.status_code != 200:
+        raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
+    total = int(resp.headers.get('content-length', 0))
+    progress = DownloadProgress(download_dir.name, total=total)
+    with open(download_dir, 'wb') as file:
+        for chunk in resp.iter_content(chunk_size=1024):
+            progress.update(file.write(chunk))
+    if not os.path.exists(download_dir):
+        raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
+    return Path(download_dir)
 
 def transfer_to(f, dst, copy=False):
     if USE_SYMLINKS and not copy: return symlink_to(f, dst)
     else: return copy_to(f, dst)
 
-def retrieve_url(url, dst, copy=False, insecure=False, hash=None):
-    remote = not url.startswith('file://')
+def retrieve_url(url: str | furl, dst, copy=False, insecure=False, hash=None):
+    if not isinstance(url, furl):
+        url = furl(url)
+    remote = url.scheme is not None and url.scheme not in ['file', '']
     # Retrieve from cache
     if remote and hash:
         f = get_cache_file(hash.replace(':', '-'))
-        if f: return f
+        if f: return Path(f)
     f = download_to(url, dst, insecure=insecure) if remote else transfer_to(url[7:], dst, copy=copy)
-    if os.path.isfile(f) and hash:
+    if f.is_file() and hash:
         with display.status("Computing hash..."):
             result = check_hash(f, hash)
         if result:
             if remote: add_cache_file(hash.replace(':', '-'), f)
         else:
             raise BuildError("Hash doesn't match for {0}: {1}".format(url, hash))
-    return f
+    return Path(f)
 
-def extract_ar(archive, dst, *kwargs):
-    if sys.version_info[0] < 3 and archive.endswith('.xz'):
+def extract_ar(archive: str | Path, dst, *kwargs):
+    if not isinstance(archive, Path):
+        archive = Path(archive)
+    if sys.version_info[0] < 3 and archive.suffix == '.xz':
         with contextlib.closing(lzma.LZMAFile(archive)) as xz:
             with tarfile.open(fileobj=xz, *kwargs) as f:
                 f.extractall(dst)
-    elif archive.endswith('.zip'):
+    elif archive.suffix == '.zip':
         with zipfile.ZipFile(archive,'r') as f:
             f.extractall(dst)
     elif tarfile.is_tarfile(archive):
@@ -368,7 +380,7 @@ class Commander:
 
     def _get_paths_env(self):
         if self.paths is not None:
-            return { 'PATH': os.pathsep.join(list(self.paths)+[os.environ['PATH']]) }
+            return {'PATH': os.pathsep.join([str(path) for path in self.paths]+[os.environ['PATH']])}
         else: return None
 
     def _cmd(self, name, args=None, options=None, env=None, **kwargs):

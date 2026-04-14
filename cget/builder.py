@@ -12,13 +12,13 @@ class Builder:
         self.cmake_original_file = '__cget_original_cmake_file__.cmake'
 
     def get_path(self, *args):
-        return os.path.join(self.top_dir, *args)
+        return self.top_dir.joinpath(*args)
 
     def get_build_path(self, *args):
         return self.get_path('build', *args)
 
     def is_make_generator(self):
-        return os.path.exists(self.get_build_path('Makefile'))
+        return self.get_build_path('Makefile').exists()
 
     def cmake(self, options=None, use_toolchain=False, **kwargs):
         if use_toolchain: return self.prefix.cmd.cmake(options=util.merge({'-DCMAKE_TOOLCHAIN_FILE': self.prefix.toolchain}, options), **kwargs)
@@ -46,7 +46,7 @@ class Builder:
         self.prefix.log("fetch:", url)
         if insecure: url = url.replace('https', 'http')
         f = util.retrieve_url(url, self.top_dir, copy=copy, insecure=insecure, hash=hash)
-        if os.path.isfile(f):
+        if f.is_file():
             with display.status("Extracting archive..."):
                 util.extract_ar(archive=f, dst=self.top_dir)
         return next(util.get_dirs(self.top_dir))
@@ -66,7 +66,8 @@ class Builder:
         if test: args.extend(['-DBUILD_TESTING=On'])
         else: args.extend(['-DBUILD_TESTING=Off'])
         args.extend(['-DCMAKE_BUILD_TYPE={}'.format(variant or 'Release')])
-        if install_prefix is not None: args.extend(['-DCMAKE_INSTALL_PREFIX=' + install_prefix])
+        if install_prefix is not None: args.extend(['-DCMAKE_INSTALL_PREFIX=' + str(install_prefix)])
+        args.extend(['-A', 'x64', '--no-warn-unused-cli', '-Wno-deprecated', '-Wno-dev'])
         try:
             self.cmake(args=args, cwd=self.build_dir, use_toolchain=True)
         except:
