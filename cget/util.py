@@ -234,10 +234,15 @@ def download_to(url: str | furl, download_dir: str | Path, insecure=False) -> Pa
     if resp.status_code != 200:
         raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
     total = int(resp.headers.get('content-length', 0))
-    progress = DownloadProgress(download_dir.name, total=total)
-    with open(download_dir, 'wb') as file:
+    with open(download_dir, 'wb') as file, display.create_download_progress() as progress:
+        task = progress.add_task(download_dir.name, total=total if total > 0 else None)        
+        completed = 0
         for chunk in resp.iter_content(chunk_size=1024):
-            progress.update(file.write(chunk))
+            completed = completed + file.write(chunk)
+            if total > 0:
+                progress.update(task, total=total, completed=completed)
+            else:
+                progress.update(task, completed=completed)
     if not os.path.exists(download_dir):
         raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
     return Path(download_dir)
