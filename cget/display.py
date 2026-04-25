@@ -1,8 +1,7 @@
 from rich.console import Console
 from rich.progress import (
     Progress, BarColumn, DownloadColumn, TransferSpeedColumn,
-    TimeRemainingColumn, TextColumn, SpinnerColumn, TotalFileSizeColumn,
-    FileSizeColumn
+    TimeRemainingColumn, TextColumn, SpinnerColumn
 )
 from rich.prompt import Confirm
 from rich.table import Table
@@ -52,76 +51,17 @@ def status(msg):
     return console.status("[bold]{}[/]".format(msg), spinner="dots")
 
 
-class ExtractProgress:
-    """Progress bar class for archive extraction."""
-
-    def __init__(self, filename, total: float) -> None:
-        self.progress = Progress(
-            SpinnerColumn(),
-            TextColumn('[progress.description]{task.fields[filename]}'),
-            BarColumn(),
-            TextColumn('[progress.percentage]{task.percentage:3.1f}%'),
-            '•',
-            FileSizeColumn(),
-            'of',
-            TotalFileSizeColumn(),
-            '•',
-            TimeRemainingColumn(),
-            console=console
-        )
-        self.progress.start()
-        self.active_task = self.progress.add_task(
-            'extract', filename=filename, total=total, message='')
-
-    def __del__(self) -> None:
-        self.progress.stop()
-
-    def update(self, advance: float):
-        """Update a progress bar."""
-        self.progress.update(self.active_task, advance=advance)
-
-
-class CallbackIOWrapper:  # pylint: disable=too-few-public-methods
-    """Wrapper for IO operations."""
-
-    def __init__(self, progress: ExtractProgress, inf) -> None:
-        self.progress = progress
-        self.inf = inf
-
-    def read(self, size: int) -> bytes:
-        """Read bytes from input stream and update progress bar."""
-        buffer = self.inf.read(size)
-        self.progress.update(advance=len(buffer))
-        return buffer
-
-
-class DownloadProgress:
-    """Progress bar class for archive downloader."""
-
-    def __init__(self, filename, total: float) -> None:
-        self.progress = Progress(
-            SpinnerColumn(),
-            TextColumn('[progress.description]{task.fields[filename]}'),
-            BarColumn(),
-            TextColumn('[progress.percentage]{task.percentage:>3.1f}%'),
-            '•',
-            DownloadColumn(),
-            '•',
-            TransferSpeedColumn(),
-            '•',
-            TimeRemainingColumn(),
-            console=console
-        )
-        self.progress.start()
-        self.task_id = self.progress.add_task(
-            'download', filename=filename, total=total, message='')
-
-    def __del__(self) -> None:
-        self.progress.stop()
-
-    def update(self, advance: float) -> None:
-        """Update a progress bar."""
-        self.progress.update(self.task_id, advance=advance)
+def create_download_progress():
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(bar_width=40),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    )
 
 
 def confirm(msg):

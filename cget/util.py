@@ -1,7 +1,6 @@
-import click, os, sys, shutil, json, six, hashlib, requests
+import click, os, sys, shutil, json, six, hashlib, ssl, requests
 from pathlib import Path
 from furl import furl
-from display import DownloadProgress
 
 if sys.version_info[0] < 3:
     try:
@@ -44,15 +43,13 @@ def quote(s):
         s = str(s)
     return json.dumps(s)
 
-
 class BuildError(Exception):
     def __init__(self, msg=None, data=None):
         self.msg = msg
         self.data = data
-
     def __str__(self):
-        return "Build failed" if None else self.msg
-
+        if None: return "Build failed"
+        else: return self.msg
 
 def ensure_exists(f):
     if not f:
