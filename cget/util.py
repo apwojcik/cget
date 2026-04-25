@@ -229,23 +229,23 @@ def download_to(url: str | furl, download_dir: str | Path, insecure=False) -> Pa
     display.info("Downloading [bold]{}[/bold]".format(url))
     if isinstance(download_dir, str):
         download_dir = Path(download_dir)
-    download_dir /= url.path.segments[-1]
-    resp = requests.get(url.url, stream=True, timeout=3600)
-    if resp.status_code != 200:
-        raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
-    total = int(resp.headers.get('content-length', 0))
-    with open(download_dir, 'wb') as file, display.create_download_progress() as progress:
-        task = progress.add_task(download_dir.name, total=total if total > 0 else None)        
-        completed = 0
-        for chunk in resp.iter_content(chunk_size=1024):
-            completed = completed + file.write(chunk)
-            if total > 0:
-                progress.update(task, total=total, completed=completed)
+    name = url.path.segments[-1]
+    file = download_dir / name
+    with display.create_download_progress() as progress:
+        task = progress.add_task(name, total=None)
+        def hook(count, block_size, total_size):
+            if total_size > 0:
+                progress.update(task, total=total_size, completed=min(count * block_size, total_size))
             else:
-                progress.update(task, completed=completed)
-    if not os.path.exists(download_dir):
-        raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
-    return Path(download_dir)
+                progress.update(task, completed=count * block_size)
+        context = None
+        if insecure: context = ssl._create_unverified_context()
+        CGetURLOpener(context=context).retrieve(url, filename=file, reporthook=hook, data=None)
+        if progress.tasks[0].total is not None:
+            progress.update(task, completed=progress.tasks[0].total)
+    if not file.exists():
+        raise BuildError("Download failed for: {0}".format(url))
+    return file
 
 def transfer_to(f, dst, copy=False):
     if USE_SYMLINKS and not copy: return symlink_to(f, dst)
@@ -258,7 +258,7 @@ def retrieve_url(url: str | furl, dst, copy=False, insecure=False, hash=None):
     # Retrieve from cache
     if remote and hash:
         f = get_cache_file(hash.replace(':', '-'))
-        if f: return Path(f)
+        if f: return f
     f = download_to(url, dst, insecure=insecure) if remote else transfer_to(url[7:], dst, copy=copy)
     if f.is_file() and hash:
         with display.status("Computing hash..."):
@@ -267,7 +267,7 @@ def retrieve_url(url: str | furl, dst, copy=False, insecure=False, hash=None):
             if remote: add_cache_file(hash.replace(':', '-'), f)
         else:
             raise BuildError("Hash doesn't match for {0}: {1}".format(url, hash))
-    return Path(f)
+    return f
 
 def extract_ar(archive: str | Path, dst, *kwargs):
     if not isinstance(archive, Path):
