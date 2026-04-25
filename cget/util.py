@@ -122,20 +122,20 @@ def get_cache_file(key):
     else:
         return None
 
-def delete_dir(path):
-    if path is not None and os.path.exists(path): shutil.rmtree(adjust_path(path))
+def delete_dir(path: Path):
+    if path is not None and path.exists(): shutil.rmtree(adjust_path(path))
 
-def symlink_dir(src, dst):
-    for root, dirs, files in os.walk(src):
+def symlink_dir(src: Path, dst: Path):
+    for root, dirs, files in src.walk(top_down=False):
         all_files = (
             file
             for x in [dirs, files]
             for file in x
-            if os.path.islink(os.path.join(root, file)) or os.path.isfile(os.path.join(root, file))
+            if (root / file).is_symlink() or (root / file).is_file()
         )
         for file in all_files:
-            path = os.path.relpath(root, src)
-            d = os.path.join(dst, path)
+            path = Path(os.path.relpath(root, src))
+            d = dst / path
             mkdir(d)
             relpath = os.path.relpath(os.path.join(root, file), d)
             try:
@@ -143,14 +143,14 @@ def symlink_dir(src, dst):
             except:
                 raise BuildError("Failed to link: {} -> {}".format(os.path.join(root, file), os.path.join(d, file)))
 
-def copy_dir(src, dst):
-    for root, dirs, files in os.walk(src):
+def copy_dir(src: Path, dst: Path):
+    for root, dirs, files in src.walk(top_down=False):
         for file in files:
-            path = os.path.relpath(root, src)
-            d = os.path.join(dst, path)
+            path = Path(os.path.relpath(root, src))
+            d = dst / path
             mkdir(d)
-            src_file = os.path.join(root, file)
-            shutil.copy2(adjust_path(src_file), os.path.join(d, file))
+            src_file = root / file
+            shutil.copy2(adjust_path(src_file), d / file)
 
 def readlink(file):
     f = os.readlink(file)
