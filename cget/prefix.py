@@ -1,5 +1,7 @@
-import copy, os, shutil, shlex, six, inspect, contextlib, sys, functools, hashlib, platform
+import copy, os, shutil, shlex, six, inspect, contextlib, sys, functools, hashlib
+import platform
 from pathlib import Path
+from typing import List
 
 from cget.builder import Builder
 from cget.package import fname_to_pkg
@@ -106,7 +108,7 @@ PACKAGE_SOURCE_TYPES = (six.string_types, PackageSource, PackageBuild)
 
 class CGetPrefix:
     def __init__(self, prefix, verbose=False, build_path=None):
-        self.prefix = os.path.abspath(prefix or 'cget')
+        self.prefix = Path(prefix or 'cget').absolute()
         self.verbose = verbose
         self.build_path = build_path
         self.cmd = util.Commander(paths=[self.get_path('bin')], env=self.get_env(), verbose=self.verbose)
@@ -181,8 +183,8 @@ class CGetPrefix:
 
 
     def get_path(self, *paths):
-        return os.path.join(self.prefix, *paths)
-
+        return self.prefix.joinpath(*paths)
+	
     def get_private_path(self, *paths):
         return self.get_path('cget', *paths)
 
@@ -193,7 +195,7 @@ class CGetPrefix:
         return [self.get_public_path('recipes')]
 
     def get_builder_path(self, *paths):
-        if self.build_path: return os.path.join(self.build_path_var, *paths)
+        if self.build_path: return self.build_path.joinpath(*paths)
         else: return self.get_private_path('build', *paths)
 
     @contextlib.contextmanager
@@ -204,7 +206,7 @@ class CGetPrefix:
             # Use a short hash to avoid exceeding Windows MAX_PATH (260 chars)
             name = hashlib.sha256(name.encode()).hexdigest()[:12] if len(name) > 12 else name
         d = self.get_builder_path(pre + name)
-        exists = os.path.exists(d)
+        exists = d.exists()
         util.mkdir(d)
         yield Builder(self, d, exists)
         if platform.system() != 'Windows' and tmp: shutil.rmtree(d, ignore_errors=True)
@@ -321,13 +323,13 @@ class CGetPrefix:
         unlink_dir = self.get_unlink_directory(pb.to_fname())
         install_dir = self.get_package_directory(pb.to_fname(), 'install')
         # If its been unlinked, then link it in
-        if os.path.exists(unlink_dir):
+        if unlink_dir.is_dir():
             if update: shutil.rmtree(unlink_dir)
             else:
                 self.link(pb)
                 self.write_parent(pb, track=track)
                 return "[green]\u2713[/] Linking package {}".format(display.pkg(pb.to_name()))
-        if os.path.exists(pkg_dir): 
+        if pkg_dir.is_dir():
             self.write_parent(pb, track=track)
             if update: self.remove(pb)
             else: return "[yellow]![/] Package {} already installed".format(display.pkg(pb.to_name()))
@@ -360,7 +362,7 @@ class CGetPrefix:
         pb = self.parse_pkg_build(pb)
         pkg_dir = self.get_package_directory(pb.to_fname())
         # If package doesn't exist
-        if not os.path.exists(pkg_dir):
+        if not pkg_dir.exists():
             util.mkfile(pkg_dir, "ignore", "ignore")
             return "[yellow]![/] Ignore package {}".format(display.pkg(pb.to_name()))
         else:
@@ -395,7 +397,7 @@ class CGetPrefix:
     def build_clean(self, pb):
         pb = self.parse_pkg_build(pb)
         p = self.get_builder_path(pb.to_fname())
-        if os.path.exists(p): shutil.rmtree(p)
+        if p.exists(): shutil.rmtree(p)
 
     @params(pb=PACKAGE_SOURCE_TYPES)
     def build_configure(self, pb):
@@ -416,7 +418,7 @@ class CGetPrefix:
         pkg_dir = self.get_package_directory(pkg.to_fname())
         unlink_dir = self.get_unlink_directory(pkg.to_fname())
         self.log("Unlink:", pkg_dir)
-        if os.path.exists(pkg_dir):
+        if pkg_dir.exists():
             if util.USE_SYMLINKS:
                 util.rm_symlink_from(pkg_dir / 'install', self.prefix)
             else:
@@ -454,7 +456,7 @@ class CGetPrefix:
     def list(self, pkg=None, recursive=False, top=True):
         for d in self._list_files(pkg, top):
             p = fname_to_pkg(d)
-            if os.path.exists(self.get_package_directory(d)): yield p
+            if self.get_package_directory(d).exists(): yield p
             if recursive:
                 for child in self.list(p, recursive=recursive, top=False):
                     yield child
