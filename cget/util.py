@@ -166,7 +166,9 @@ def rm_symlink(file):
 def rm_symlink_in(file, prefix):
     if os.path.islink(file):
         f = readlink(file)
-        if f.startswith(str(prefix)):
+        if not isinstance(prefix, str):
+            prefix = str(prefix)
+        if f.startswith(prefix):
             os.remove(file)
 
 def rm_symlink_dir(d):
@@ -175,8 +177,10 @@ def rm_symlink_dir(d):
             rm_symlink(os.path.join(root, file))
 
 def rm_symlink_from(d, prefix):
+    if not isinstance(d, str):
+        d = str(d)
     for root, dirs, files in os.walk(prefix):
-        if not root.startswith(str(d)):
+        if not root.startswith(d):
             for file in files:
                 rm_symlink_in(os.path.join(root, file), d)
 
@@ -190,7 +194,7 @@ def rm_dup_dir(d, prefix, remove_both=True):
             os.remove(os.path.join(prefix, relpath))
             if remove_both: os.remove(fullpath)
 
-def rm_empty_dirs(d: str | Path) -> bool:
+def rm_empty_dirs(d):
     if not isinstance(d, Path):
         d = Path(d)
     has_files = False
@@ -206,13 +210,13 @@ def rm_empty_dirs(d: str | Path) -> bool:
 def get_dirs(d):
     return (os.path.join(d,o) for o in os.listdir(d) if os.path.isdir(os.path.join(d,o)))
 
-def copy_to(src: Path, dst_dir: Path) -> Path:
+def copy_to(src, dst_dir):
     target = dst_dir / src.name
     if src.is_file(): shutil.copyfile(src, target)
     else: shutil.copytree(src, target)
     return target
 
-def symlink_to(src: Path, dst_dir: Path) -> Path:
+def symlink_to(src, dst_dir):
     target = dst_dir / src.name
     target.symlink_to(src)
     return target
@@ -223,12 +227,12 @@ class CGetURLOpener(request.FancyURLopener):
             raise BuildError("Download failed with error {0} for: {1}".format(errcode, url))
         return request.FancyURLopener.http_error_default(self, url, fp, errcode, errmsg, headers)
 
-def download_to(url: str | furl, download_dir: str | Path, insecure=False) -> Path:
+def download_to(url, download_dir, insecure=False):
     if not isinstance(url, furl):
         url = furl(url)
-    display.info("Downloading [bold]{}[/bold]".format(url))
-    if isinstance(download_dir, str):
+    if not isinstance(download_dir, Path):
         download_dir = Path(download_dir)
+    display.info("Downloading [bold]{}[/bold]".format(url))
     download_dir /= url.path.segments[-1]
     resp = requests.get(url.url, stream=True, timeout=3600)
     if resp.status_code != 200:
@@ -245,7 +249,7 @@ def download_to(url: str | furl, download_dir: str | Path, insecure=False) -> Pa
                 progress.update(task, completed=completed)
     if not os.path.exists(download_dir):
         raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
-    return Path(download_dir)
+    return download_dir
 
 def transfer_to(f, dst, copy=False):
     if USE_SYMLINKS and not copy: return symlink_to(f, dst)
@@ -267,9 +271,9 @@ def retrieve_url(url: str | furl, dst, copy=False, insecure=False, hash=None):
             if remote: add_cache_file(hash.replace(':', '-'), f)
         else:
             raise BuildError("Hash doesn't match for {0}: {1}".format(url, hash))
-    return Path(f)
+    return f
 
-def extract_ar(archive: str | Path, dst, *kwargs):
+def extract_ar(archive, dst, *kwargs):
     if not isinstance(archive, Path):
         archive = Path(archive)
     if sys.version_info[0] < 3 and archive.suffix == '.xz':
