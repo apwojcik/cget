@@ -24,7 +24,7 @@ class PackageSource:
 
     def get_encoded_name_url(self):
         if self.name is None: return encode_url(self.url)
-        else: return self.name.replace('/', '_')
+        else: return self.name.replace('/', '__')
 
     def get_src_dir(self):
         if self.url.startswith('file://'):

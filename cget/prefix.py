@@ -1,7 +1,5 @@
-import copy, os, shutil, shlex, six, inspect, contextlib, sys, functools, hashlib
+import os, shutil, shlex, six, inspect, contextlib, sys, functools, hashlib
 import platform
-from pathlib import Path
-from typing import List
 
 from cget.builder import Builder
 from cget.package import fname_to_pkg
@@ -54,9 +52,7 @@ def parse_src_name(url, default=None):
     return (p, v)
 
 def cmake_set(var, val, quote=True, cache=None, description=None):
-    x = copy.deepcopy(val)
-    if isinstance(x, Path):
-        x = str(x)
+    x = val
     if quote: x = util.quote(val)
     if cache is None or cache.lower() == 'none':
         yield "set({0} {1})".format(var, x)
@@ -66,7 +62,7 @@ def cmake_set(var, val, quote=True, cache=None, description=None):
 def cmake_append(var, *vals, **kwargs):
     quote = True
     if 'quote' in kwargs: quote = kwargs['quote']
-    x = ' '.join([str(v) for v in vals])
+    x = ' '.join(vals)
     if quote: x = ' '.join([util.quote(val) for val in vals])
     yield 'list(APPEND {0} {1})'.format(var, x)
 
@@ -108,7 +104,7 @@ PACKAGE_SOURCE_TYPES = (six.string_types, PackageSource, PackageBuild)
 
 class CGetPrefix:
     def __init__(self, prefix, verbose=False, build_path=None):
-        self.prefix = Path(prefix or 'cget').absolute()
+        self.prefix = os.path.abspath(prefix or 'cget')
         self.verbose = verbose
         self.build_path = build_path
         self.cmd = util.Commander(paths=[self.get_path('bin')], env=self.get_env(), verbose=self.verbose)
@@ -126,7 +122,7 @@ class CGetPrefix:
         if platform.system() == 'Windows':
             return None
         return {
-            'LD_LIBRARY_PATH': str(self.get_path('lib')),
+            'LD_LIBRARY_PATH': self.get_path('lib'),
             'PKG_CONFIG_PATH': self.pkg_config_path()
         }
 
@@ -183,8 +179,8 @@ class CGetPrefix:
 
 
     def get_path(self, *paths):
-        return self.prefix.joinpath(*paths)
-	
+        return os.path.join(self.prefix, *paths)
+
     def get_private_path(self, *paths):
         return self.get_path('cget', *paths)
 
@@ -195,7 +191,7 @@ class CGetPrefix:
         return [self.get_public_path('recipes')]
 
     def get_builder_path(self, *paths):
-        if self.build_path: return self.build_path.joinpath(*paths)
+        if self.build_path: return os.path.join(self.build_path, *paths)
         else: return self.get_private_path('build', *paths)
 
     @contextlib.contextmanager
@@ -206,7 +202,7 @@ class CGetPrefix:
             # Use a short hash to avoid exceeding Windows MAX_PATH (260 chars)
             name = hashlib.sha256(name.encode()).hexdigest()[:12] if len(name) > 12 else name
         d = self.get_builder_path(pre + name)
-        exists = d.exists()
+        exists = os.path.exists(d)
         util.mkdir(d)
         yield Builder(self, d, exists)
         if platform.system() != 'Windows' and tmp: shutil.rmtree(d, ignore_errors=True)
@@ -215,13 +211,13 @@ class CGetPrefix:
         return self.get_private_path('pkg', *dirs)
 
     def get_unlink_directory(self, *dirs):
-        return self.get_private_path('.unlink', *dirs)
+        return self.get_private_path('unlink', *dirs)
 
     def get_deps_directory(self, name, *dirs):
-        return self.get_package_directory(name, '.depend', *dirs)
+        return self.get_package_directory(name, 'deps', *dirs)
 
     def get_unlink_deps_directory(self, name, *dirs):
-        return self.get_unlink_directory(name, '.depend', *dirs)
+        return self.get_unlink_directory(name, 'deps', *dirs)
 
     def parse_src_file(self, name, url, start=None):
         f = util.actual_path(url, start)
@@ -323,13 +319,13 @@ class CGetPrefix:
         unlink_dir = self.get_unlink_directory(pb.to_fname())
         install_dir = self.get_package_directory(pb.to_fname(), 'install')
         # If its been unlinked, then link it in
-        if unlink_dir.is_dir():
+        if os.path.exists(unlink_dir):
             if update: shutil.rmtree(unlink_dir)
             else:
                 self.link(pb)
                 self.write_parent(pb, track=track)
                 return "[green]\u2713[/] Linking package {}".format(display.pkg(pb.to_name()))
-        if pkg_dir.is_dir():
+        if os.path.exists(pkg_dir): 
             self.write_parent(pb, track=track)
             if update: self.remove(pb)
             else: return "[yellow]![/] Package {} already installed".format(display.pkg(pb.to_name()))
@@ -362,7 +358,7 @@ class CGetPrefix:
         pb = self.parse_pkg_build(pb)
         pkg_dir = self.get_package_directory(pb.to_fname())
         # If package doesn't exist
-        if not pkg_dir.exists():
+        if not os.path.exists(pkg_dir):
             util.mkfile(pkg_dir, "ignore", "ignore")
             return "[yellow]![/] Ignore package {}".format(display.pkg(pb.to_name()))
         else:
@@ -397,7 +393,7 @@ class CGetPrefix:
     def build_clean(self, pb):
         pb = self.parse_pkg_build(pb)
         p = self.get_builder_path(pb.to_fname())
-        if p.exists(): shutil.rmtree(p)
+        if os.path.exists(p): shutil.rmtree(p)
 
     @params(pb=PACKAGE_SOURCE_TYPES)
     def build_configure(self, pb):
@@ -418,11 +414,11 @@ class CGetPrefix:
         pkg_dir = self.get_package_directory(pkg.to_fname())
         unlink_dir = self.get_unlink_directory(pkg.to_fname())
         self.log("Unlink:", pkg_dir)
-        if pkg_dir.exists():
+        if os.path.exists(pkg_dir):
             if util.USE_SYMLINKS:
-                util.rm_symlink_from(pkg_dir / 'install', self.prefix)
+                util.rm_symlink_from(os.path.join(pkg_dir, 'install'), self.prefix)
             else:
-                util.rm_dup_dir(pkg_dir / 'install', self.prefix, remove_both=False)
+                util.rm_dup_dir(os.path.join(pkg_dir, 'install'), self.prefix, remove_both=False)
             util.rm_empty_dirs(self.prefix)
             if delete: util.delete_dir(pkg_dir)
             else:
@@ -437,8 +433,8 @@ class CGetPrefix:
         if os.path.exists(unlink_dir):
             util.mkdir(self.get_package_directory())
             os.rename(unlink_dir, pkg_dir)
-            if util.USE_SYMLINKS: util.symlink_dir(pkg_dir / 'install', self.prefix)
-            else: util.copy_dir(pkg_dir / 'install', self.prefix)
+            if util.USE_SYMLINKS: util.symlink_dir(os.path.join(pkg_dir, 'install'), self.prefix)
+            else: util.copy_dir(os.path.join(pkg_dir, 'install'), self.prefix)
         # Relink dependencies
         for dep in util.ls(self.get_unlink_directory(), os.path.isdir):
             ls = util.ls(self.get_unlink_deps_directory(dep), os.path.isfile)
@@ -456,7 +452,7 @@ class CGetPrefix:
     def list(self, pkg=None, recursive=False, top=True):
         for d in self._list_files(pkg, top):
             p = fname_to_pkg(d)
-            if self.get_package_directory(d).exists(): yield p
+            if os.path.exists(self.get_package_directory(d)): yield p
             if recursive:
                 for child in self.list(p, recursive=recursive, top=False):
                     yield child
@@ -478,7 +474,7 @@ class CGetPrefix:
     def pkg_config_path(self):
         libs = []
         for p in ['lib', 'lib64', 'share']:
-            libs.append(str(self.get_path(p, 'pkgconfig')))
+            libs.append(self.get_path(p, 'pkgconfig'))
         return os.pathsep.join(libs)
 
     @contextlib.contextmanager
