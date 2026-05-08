@@ -1,3 +1,5 @@
+from wsgiref import headers
+
 import click, os, sys, shutil, json, six, hashlib, ssl, requests
 from furl import furl
 
@@ -212,19 +214,17 @@ def symlink_to(src, dst_dir):
     os.symlink(src, target)
     return target
 
-class CGetURLOpener(request.FancyURLopener):
-    def http_error_default(self, url, fp, errcode, errmsg, headers):
-        if errcode >= 400:
-            raise BuildError("Download failed with error {0} for: {1}".format(errcode, url))
-        return request.FancyURLopener.http_error_default(self, url, fp, errcode, errmsg, headers)
-
 def download_to(url, download_dir, insecure=False):
     if not isinstance(url, furl):
         url = furl(url)
     name = url.path.segments[-1]
     file = os.path.join(download_dir, name)
     display.info("Downloading [bold]{}[/bold]".format(url))
-    r = requests.get(url.url, stream=True, timeout=3600)
+    request_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, "
+                      "like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+    r = requests.get(url.url, headers=request_headers, timeout=3600, stream=True,
+                     allow_redirects=True, verify=insecure)
     if r.status_code != 200:
         raise BuildError("Download failed for: {0}, status_code={1}".format(url, r.status_code))
     total_size = int(r.headers.get('content-length', 0))
