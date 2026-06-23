@@ -387,11 +387,11 @@ def retrieve_url(url: str | furl, dst, copy=False, insecure=False, hash=None) ->
     f = download_to(url, dst, insecure=insecure) if remote else transfer_to(url[7:], dst, copy=copy)
     if f.is_file() and hash:
         with display.status("Computing hash..."):
-        if check_hash(f, hash):
-            if remote:
-                add_cache_file(hash.replace(':', '-'), f)
-        else:
-            raise BuildError("Hash doesn't match for {0}: {1}".format(url, hash))
+            if check_hash(f, hash):
+                if remote:
+                    add_cache_file(hash.replace(':', '-'), f)
+            else:
+                raise BuildError("Hash doesn't match for {0}: {1}".format(url, hash))
     return Path(f)
 
 
