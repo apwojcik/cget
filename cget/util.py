@@ -224,7 +224,7 @@ def download_to(url, download_dir, insecure=False):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, "
                       "like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
     r = requests.get(url.url, headers=request_headers, timeout=3600, stream=True,
-                     allow_redirects=True, verify=insecure)
+                     allow_redirects=True, verify=not insecure)
     if r.status_code != 200:
         raise BuildError("Download failed for: {0}, status_code={1}".format(url, r.status_code))
     total_size = int(r.headers.get('content-length', 0))
