@@ -106,7 +106,7 @@ class CGetPrefix:
     def __init__(self, prefix, verbose=False, build_path=None):
         self.prefix = os.path.abspath(prefix or 'cget')
         self.verbose = verbose
-        self.build_path = build_path
+        self.build_path_var = build_path
         self.cmd = util.Commander(paths=[self.get_path('bin')], env=self.get_env(), verbose=self.verbose)
         self.toolchain = self.write_cmake()
 
@@ -191,7 +191,7 @@ class CGetPrefix:
         return [self.get_public_path('recipes')]
 
     def get_builder_path(self, *paths):
-        if self.build_path: return os.path.join(self.build_path, *paths)
+        if self.build_path_var: return os.path.join(self.build_path_var, *paths)
         else: return self.get_private_path('build', *paths)
 
     @contextlib.contextmanager
@@ -385,7 +385,7 @@ class CGetPrefix:
             if test: builder.test(variant=pb.variant)
 
     @params(pb=PACKAGE_SOURCE_TYPES)
-    def get_build_path(self, pb):
+    def build_path(self, pb):
         pb = self.parse_pkg_build(pb)
         return self.get_builder_path(pb.to_fname(), 'build')
 
@@ -400,9 +400,9 @@ class CGetPrefix:
         pb = self.parse_pkg_build(pb)
         src_dir = pb.pkg_src.get_src_dir()
         if 'ccmake' in self.cmd:
-            self.cmd.ccmake([src_dir], cwd=self.get_build_path(pb))
+            self.cmd.ccmake([src_dir], cwd=self.build_path(pb))
         elif 'cmake-gui' in self.cmd:
-            self.cmd.cmake_gui([src_dir], cwd=self.get_build_path(pb))
+            self.cmd.cmake_gui([src_dir], cwd=self.build_path(pb))
 
     @params(pkg=PACKAGE_SOURCE_TYPES)
     def remove(self, pkg):
