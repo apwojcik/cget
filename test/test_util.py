@@ -843,6 +843,68 @@ class TestDownloadTo:
             assert os.path.exists(result)
 
 
+# ── download_to retries ──────────────────────────────────────────────────────
+
+class FakeResponse:
+    def __init__(self, status_code=200, content=b"hello"):
+        self.status_code = status_code
+        self.headers = {}
+        self._content = content
+
+    def iter_content(self, chunk_size=1024):
+        yield self._content
+
+
+class TestDownloadToRetries:
+    def test_succeeds_first_try_no_retry(self, tmp_path, monkeypatch):
+        download_dir = tmp_path / "dl"
+        download_dir.mkdir()
+        monkeypatch.setattr(util.requests, 'get', mock.Mock(return_value=FakeResponse()))
+        sleep_mock = mock.Mock()
+        monkeypatch.setattr(util.time, 'sleep', sleep_mock)
+        result = util.download_to("http://example.com/file.txt", str(download_dir))
+        assert os.path.exists(result)
+        sleep_mock.assert_not_called()
+
+    def test_retries_then_succeeds(self, tmp_path, monkeypatch):
+        download_dir = tmp_path / "dl"
+        download_dir.mkdir()
+        responses = [FakeResponse(status_code=500), FakeResponse(status_code=500), FakeResponse(status_code=200)]
+        get_mock = mock.Mock(side_effect=responses)
+        monkeypatch.setattr(util.requests, 'get', get_mock)
+        sleep_mock = mock.Mock()
+        monkeypatch.setattr(util.time, 'sleep', sleep_mock)
+        result = util.download_to("http://example.com/file.txt", str(download_dir), retries=3, retry_delay=5)
+        assert os.path.exists(result)
+        assert get_mock.call_count == 3
+        assert sleep_mock.call_count == 2
+        sleep_mock.assert_called_with(5)
+
+    def test_exhausts_retries_and_raises(self, tmp_path, monkeypatch):
+        download_dir = tmp_path / "dl"
+        download_dir.mkdir()
+        get_mock = mock.Mock(return_value=FakeResponse(status_code=500))
+        monkeypatch.setattr(util.requests, 'get', get_mock)
+        sleep_mock = mock.Mock()
+        monkeypatch.setattr(util.time, 'sleep', sleep_mock)
+        with pytest.raises(util.BuildError, match="Download failed"):
+            util.download_to("http://example.com/file.txt", str(download_dir), retries=2, retry_delay=1)
+        assert get_mock.call_count == 3
+        assert sleep_mock.call_count == 2
+
+    def test_zero_retries_fails_immediately(self, tmp_path, monkeypatch):
+        download_dir = tmp_path / "dl"
+        download_dir.mkdir()
+        get_mock = mock.Mock(return_value=FakeResponse(status_code=500))
+        monkeypatch.setattr(util.requests, 'get', get_mock)
+        sleep_mock = mock.Mock()
+        monkeypatch.setattr(util.time, 'sleep', sleep_mock)
+        with pytest.raises(util.BuildError, match="Download failed"):
+            util.download_to("http://example.com/file.txt", str(download_dir), retries=0)
+        assert get_mock.call_count == 1
+        sleep_mock.assert_not_called()
+
+
 # ── retrieve_url ─────────────────────────────────────────────────────────────
 
 class TestRetrieveUrl:
@@ -902,7 +964,7 @@ class TestRetrieveUrl:
         content = b"downloaded data"
         h = hashlib.sha256(content).hexdigest()
         # Mock download_to
-        def fake_download(url, download_dir, insecure=False):
+        def fake_download(url, download_dir, insecure=False, retries=3, retry_delay=60):
             f = os.path.join(download_dir, "pkg.tar.gz")
             with open(f, 'wb') as fh:
                 fh.write(content)

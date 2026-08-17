@@ -1,6 +1,6 @@
 from wsgiref import headers
 
-import click, os, sys, shutil, json, six, hashlib, ssl, requests
+import click, os, sys, shutil, json, six, hashlib, ssl, requests, time
 from furl import furl
 
 if sys.version_info[0] < 3:
@@ -214,40 +214,50 @@ def symlink_to(src, dst_dir):
     os.symlink(src, target)
     return target
 
-def download_to(url, download_dir, insecure=False):
+def download_to(url, download_dir, insecure=False, retries=3, retry_delay=300):
     if not isinstance(url, furl):
         url = furl(url)
     name = url.path.segments[-1]
     file = os.path.join(download_dir, name)
-    display.info("Downloading [bold]{}[/bold]".format(url))
     request_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, "
                       "like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
-    r = requests.get(url.url, headers=request_headers, timeout=3600, stream=True,
-                     allow_redirects=True, verify=not insecure)
-    if r.status_code != 200:
-        raise BuildError("Download failed for: {0}, status_code={1}".format(url, r.status_code))
-    total_size = int(r.headers.get('content-length', 0))
-    with open(file, 'wb') as f, display.create_download_progress() as progress:
-        task = progress.add_task(name, total=total_size if total_size > 0 else None)
-        completed = 0
-        for chunk in r.iter_content(chunk_size=1024):
-            completed = completed + f.write(chunk)
-            if total_size > 0:
-                progress.update(task, total=total_size, completed=completed)
-            else:
-                progress.update(task, completed=completed)
-        if progress.tasks[0].total is not None:
-            progress.update(task, completed=progress.tasks[0].total)
-    if not os.path.exists(file):
-        raise BuildError("Download failed for: {0}, status_code={1}".format(url, r.status_code))
-    return file
+    for attempt in range(retries + 1):
+        display.info("Downloading [bold]{}[/bold]".format(url))
+        try:
+            r = requests.get(url.url, headers=request_headers, timeout=3600, stream=True,
+                             allow_redirects=True, verify=not insecure)
+            if r.status_code != 200:
+                raise BuildError("Download failed for: {0}, status_code={1}".format(url, r.status_code))
+            total_size = int(r.headers.get('content-length', 0))
+            with open(file, 'wb') as f, display.create_download_progress() as progress:
+                task = progress.add_task(name, total=total_size if total_size > 0 else None)
+                completed = 0
+                for chunk in r.iter_content(chunk_size=1024):
+                    completed = completed + f.write(chunk)
+                    if total_size > 0:
+                        progress.update(task, total=total_size, completed=completed)
+                    else:
+                        progress.update(task, completed=completed)
+                if progress.tasks[0].total is not None:
+                    progress.update(task, completed=progress.tasks[0].total)
+            if not os.path.exists(file):
+                raise BuildError("Download failed for: {0}, status_code={1}".format(url, r.status_code))
+            return file
+        except (BuildError, requests.exceptions.RequestException) as e:
+            if os.path.exists(file):
+                os.remove(file)
+            if attempt >= retries:
+                raise
+            display.warning("Download failed ({0}/{1}): {2}. Retrying in {3}s...".format(
+                attempt + 1, retries + 1, e, retry_delay))
+            time.sleep(retry_delay)
 
 def transfer_to(f, dst, copy=False):
     if USE_SYMLINKS and not copy: return symlink_to(f, dst)
     else: return copy_to(f, dst)
 
-def retrieve_url(url, dst, copy=False, insecure=False, hash=None):
+def retrieve_url(url, dst, copy=False, insecure=False, hash=None, retries=3, retry_delay=300):
     if not isinstance(url, furl):
         url = furl(url)
     remote = url.scheme is not None and url.scheme not in ['file', '']
@@ -255,7 +265,7 @@ def retrieve_url(url, dst, copy=False, insecure=False, hash=None):
     if remote and hash:
         f = get_cache_file(hash.replace(':', '-'))
         if f: return f
-    f = download_to(url, dst, insecure=insecure) if remote else transfer_to(url[7:], dst, copy=copy)
+    f = download_to(url, dst, insecure=insecure, retries=retries, retry_delay=retry_delay) if remote else transfer_to(url[7:], dst, copy=copy)
     if os.path.isfile(f) and hash:
         with display.status("Computing hash..."):
             result = check_hash(f, hash)
