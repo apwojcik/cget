@@ -26,32 +26,24 @@ from six.moves.urllib import request, error
 
 from cget import display
 
-
 def to_bool(value):
     x = str(value).lower()
-    if x in ("no", "n", "false", "f", "0", "0.0", "", "none", "[]", "{}"): return False
+    if x in ("no",  "n", "false", "f", "0", "0.0", "", "none", "[]", "{}"): return False
     return True
 
-
-USE_SYMLINKS = to_bool(os.environ.get('CGET_USE_SYMLINKS', (os.name == 'posix')))
-USE_CMAKE_TAR = to_bool(os.environ.get('CGET_USE_CMAKE_TAR', True))
+USE_SYMLINKS=to_bool(os.environ.get('CGET_USE_SYMLINKS', (os.name == 'posix')))
+USE_CMAKE_TAR=to_bool(os.environ.get('CGET_USE_CMAKE_TAR', True))
 
 __CGET_DIR__ = os.path.dirname(os.path.realpath(__file__))
-
 
 def cget_dir(*args):
     return os.path.join(__CGET_DIR__, *args)
 
-
 def is_string(obj):
     return isinstance(obj, six.string_types)
 
-
 def quote(s):
-    if not isinstance(s, str):
-        s = str(s)
     return json.dumps(s)
-
 
 class ExtractProgress:
     """Progress bar class for archive extraction."""
@@ -122,15 +114,13 @@ class DownloadProgress:
         """Update a progress bar."""
         self.progress.update(self.task_id, advance=advance)
 
-
 class BuildError(Exception):
     def __init__(self, msg=None, data=None):
         self.msg = msg
         self.data = data
-
     def __str__(self):
-        return "Build failed" if None else self.msg
-
+        if None: return "Build failed"
+        else: return self.msg
 
 def ensure_exists(f):
     if not f:
@@ -138,14 +128,12 @@ def ensure_exists(f):
     if not os.path.exists(f):
         raise BuildError("File does not exists: " + f)
 
-
 def can(f):
     try:
         f()
         return True
     except:
         return False
-
 
 def try_until(*args):
     for arg in args[:-1]:
@@ -159,53 +147,44 @@ def try_until(*args):
     except:
         raise
 
-
 def write_to(file, lines):
     content = list((line + "\n" for line in lines))
-    if len(content) > 0:
+    if (len(content) > 0):
         with open(file, 'w') as f:
             f.writelines(content)
-
 
 def mkdir(p):
     if not os.path.exists(p): os.makedirs(p)
     return p
 
-
-def mkfile(d: Path, file, content, always_write=True):
+def mkfile(d, file, content, always_write=True):
     mkdir(d)
-    p = d / file
-    if not p.exists() or always_write:
+    p = os.path.join(d, file)
+    if not os.path.exists(p) or always_write:
         write_to(p, content)
     return p
 
-
-def ls(p, predicate=lambda x: True):
+def ls(p, predicate=lambda x:True):
     if os.path.exists(p):
         return (d for d in os.listdir(p) if predicate(os.path.join(p, d)))
     else:
         return []
 
-
 def get_app_dir(*args):
     return os.path.join(click.get_app_dir('cget'), *args)
-
 
 def get_cache_path(*args):
     return get_app_dir('cache', *args)
 
-
-def adjust_path(p: Path):
-    # Prefixing a path to avoid problems with long paths on windows
-    if 'nt' in os.name and p.is_absolute() and not str(p).startswith("\\\\?\\"):
-        return "\\\\?\\" + str(p)
+def adjust_path(p):
+    # Prefixing path to avoid problems with long paths on windows
+    if 'nt' in os.name and os.path.isabs(p) and not p.startswith("\\\\?\\"):
+        return "\\\\?\\" + p
     return p
-
 
 def add_cache_file(key, f):
     mkdir(get_cache_path(key))
     shutil.copy2(f, get_cache_path(key, os.path.basename(f)))
-
 
 def get_cache_file(key):
     p = get_cache_path(key)
@@ -214,10 +193,8 @@ def get_cache_file(key):
     else:
         return None
 
-
 def delete_dir(path):
     if path is not None and os.path.exists(path): shutil.rmtree(adjust_path(path))
-
 
 def symlink_dir(src, dst):
     for root, dirs, files in os.walk(src):
@@ -237,7 +214,6 @@ def symlink_dir(src, dst):
             except:
                 raise BuildError("Failed to link: {} -> {}".format(os.path.join(root, file), os.path.join(d, file)))
 
-
 def copy_dir(src, dst):
     for root, dirs, files in os.walk(src):
         for file in files:
@@ -247,39 +223,33 @@ def copy_dir(src, dst):
             src_file = os.path.join(root, file)
             shutil.copy2(adjust_path(src_file), os.path.join(d, file))
 
-
 def readlink(file):
     f = os.readlink(file)
     if not os.path.isabs(f):
         f = os.path.normpath(os.path.join(os.path.dirname(file), f))
     return f
 
-
 def rm_symlink(file):
     if os.path.islink(file):
         f = readlink(file)
         if not os.path.exists(f): os.remove(file)
 
-
 def rm_symlink_in(file, prefix):
     if os.path.islink(file):
         f = readlink(file)
-        if f.startswith(str(prefix)):
+        if f.startswith(prefix):
             os.remove(file)
-
 
 def rm_symlink_dir(d):
     for root, dirs, files in os.walk(d):
         for file in files:
             rm_symlink(os.path.join(root, file))
 
-
 def rm_symlink_from(d, prefix):
     for root, dirs, files in os.walk(prefix):
-        if not root.startswith(str(d)):
+        if not root.startswith(d):
             for file in files:
                 rm_symlink_in(os.path.join(root, file), d)
-
 
 def rm_dup_dir(d, prefix, remove_both=True):
     for root, dirs, files in os.walk(d):
@@ -291,42 +261,32 @@ def rm_dup_dir(d, prefix, remove_both=True):
             os.remove(os.path.join(prefix, relpath))
             if remove_both: os.remove(fullpath)
 
-
-def rm_empty_dirs(d: str | Path) -> bool:
-    if not isinstance(d, Path):
-        d = Path(d)
+def rm_empty_dirs(d):
     has_files = False
-    for x in d.iterdir():
-        p = d / x
-        if p.is_dir() and not p.is_symlink():
+    for x in os.listdir(d):
+        p = os.path.join(d, x)
+        if os.path.isdir(p) and not os.path.islink(p):
             # Always recurse; `or` would short-circuit and skip removing this
             # subdir once a non-empty sibling has set has_files.
             if rm_empty_dirs(p): has_files = True
         else:
             has_files = True
-    if not has_files:
-        d.rmdir()
+    if not has_files: os.rmdir(d)
     return has_files
 
-
 def get_dirs(d):
-    return (os.path.join(d, o) for o in os.listdir(d) if os.path.isdir(os.path.join(d, o)))
+    return (os.path.join(d,o) for o in os.listdir(d) if os.path.isdir(os.path.join(d,o)))
 
-
-def copy_to(src: Path, dst_dir: Path) -> Path:
-    target = dst_dir / src.name
-    if src.is_file():
-        shutil.copyfile(src, target)
-    else:
-        shutil.copytree(src, target)
+def copy_to(src, dst_dir):
+    target = os.path.join(dst_dir, os.path.basename(src))
+    if os.path.isfile(src): shutil.copyfile(src, target)
+    else: shutil.copytree(src, target)
     return target
 
-
-def symlink_to(src: Path, dst_dir: Path) -> Path:
-    target = dst_dir / src.name
-    target.symlink_to(src)
+def symlink_to(src, dst_dir):
+    target = os.path.join(dst_dir, os.path.basename(src))
+    os.symlink(src, target)
     return target
-
 
 def url_retrieve(url, filename, reporthook=None, context=None):
     # Replacement for the removed urllib FancyURLopener.retrieve (gone in
@@ -347,14 +307,12 @@ def url_retrieve(url, filename, reporthook=None, context=None):
     finally:
         response.close()
 
-
-def download_to(url: str | furl, download_dir: str | Path, insecure=False) -> Path:
+def download_to(url, download_dir, insecure=False):
     if not isinstance(url, furl):
         url = furl(url)
+
     display.info("Downloading [bold]{}[/bold]".format(url))
-    if isinstance(download_dir, str):
-        download_dir = Path(download_dir)
-    download_dir /= url.path.segments[-1]
+    download_dir = Path(download_dir) / url.path.segments[-1]
     resp = requests.get(url.url, stream=True, timeout=3600)
     if resp.status_code != 200:
         raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
@@ -365,45 +323,37 @@ def download_to(url: str | furl, download_dir: str | Path, insecure=False) -> Pa
             progress.update(file.write(chunk))
     if not os.path.exists(download_dir):
         raise BuildError("Download failed for: {0}, status_code={1}".format(url, resp.status_code))
-    return Path(download_dir)
-
+    return download_dir.as_posix()
 
 def transfer_to(f, dst, copy=False):
-    if USE_SYMLINKS and not copy:
-        return symlink_to(f, dst)
-    else:
-        return copy_to(f, dst)
+    if USE_SYMLINKS and not copy: return symlink_to(f, dst)
+    else: return copy_to(f, dst)
 
-
-def retrieve_url(url: str | furl, dst, copy=False, insecure=False, hash=None) -> Path:
+def retrieve_url(url, dst, copy=False, insecure=False, hash=None):
     if not isinstance(url, furl):
         url = furl(url)
     remote = url.scheme is not None and url.scheme not in ['file', '']
     # Retrieve from cache
     if remote and hash:
         f = get_cache_file(hash.replace(':', '-'))
-        if f:
-            return Path(f)
+        if f: return f
     f = download_to(url, dst, insecure=insecure) if remote else transfer_to(url[7:], dst, copy=copy)
-    if f.is_file() and hash:
+    if os.path.isfile(f) and hash:
         with display.status("Computing hash..."):
-            if check_hash(f, hash):
-                if remote:
-                    add_cache_file(hash.replace(':', '-'), f)
-            else:
-                raise BuildError("Hash doesn't match for {0}: {1}".format(url, hash))
-    return Path(f)
+            result = check_hash(f, hash)
+        if result:
+            if remote: add_cache_file(hash.replace(':', '-'), f)
+        else:
+            raise BuildError("Hash doesn't match for {0}: {1}".format(url, hash))
+    return f
 
-
-def extract_ar(archive: str | Path, dst, *kwargs):
-    if not isinstance(archive, Path):
-        archive = Path(archive)
-    if sys.version_info[0] < 3 and archive.suffix == '.xz':
+def extract_ar(archive, dst, *kwargs):
+    if sys.version_info[0] < 3 and archive.endswith('.xz'):
         with contextlib.closing(lzma.LZMAFile(archive)) as xz:
             with tarfile.open(fileobj=xz, *kwargs) as f:
                 f.extractall(dst)
-    elif archive.suffix == '.zip':
-        with zipfile.ZipFile(archive, 'r') as f:
+    elif archive.endswith('.zip'):
+        with zipfile.ZipFile(archive,'r') as f:
             f.extractall(dst)
     elif tarfile.is_tarfile(archive):
         if USE_CMAKE_TAR:
@@ -416,12 +366,10 @@ def extract_ar(archive: str | Path, dst, *kwargs):
         mkdir(d)
         copy_to(archive, d)
 
-
 def hash_file(f, t):
     h = hashlib.new(t)
     h.update(open(f, 'rb').read())
     return h.hexdigest()
-
 
 def check_hash(f, hash):
     t, h = hash.lower().split(':')
@@ -438,17 +386,14 @@ def is_executable(filepath):
         return os.access(filepath, os.X_OK)
 
 def which(p, paths=None, throws=True):
-    exes = [p + x for x in ['', '.exe', '.bat']]
-    for dirname in list(paths or []) + os.environ['PATH'].split(os.pathsep):
+    exes = [p+x for x in ['', '.exe', '.bat']]
+    for dirname in list(paths or [])+os.environ['PATH'].split(os.pathsep):
         for exe in exes:
             candidate = os.path.join(os.path.expanduser(dirname), exe)
             if is_executable(candidate):
                 return candidate
-    if throws:
-        raise BuildError("Can't find file %s" % p)
-    else:
-        return None
-
+    if throws: raise BuildError("Can't find file %s" % p)
+    else: return None
 
 def merge(*args):
     result = {}
@@ -456,20 +401,16 @@ def merge(*args):
         result.update(dict(d or {}))
     return result
 
-
 def flat(*args):
     for arg in args:
         for x in arg:
             for y in x: yield y
 
-
 def yield_from(f):
     @six.wraps(f)
     def g(*args, **kwargs):
         return flat(f(*args, **kwargs))
-
     return g
-
 
 def cmd(args, env=None, capture=None, **kwargs):
     e = merge(os.environ, env)
@@ -484,13 +425,9 @@ def cmd(args, env=None, capture=None, **kwargs):
         raise BuildError(msg='Command failed: ' + str(args), data=e)
     return out
 
-
 def as_list(x):
-    if is_string(x):
-        return [x]
-    else:
-        return list(x)
-
+    if is_string(x): return [x]
+    else: return list(x)
 
 def to_define_dict(xs):
     result = {}
@@ -502,19 +439,16 @@ def to_define_dict(xs):
             result[x] = ''
     return result
 
-
 def as_dict_str(d):
     result = {}
     for x in d:
         result[x] = str(d[x])
     return result
 
-
 def actual_path(path, start=None):
     if os.path.isabs(path):
         return path
     return os.path.normpath(os.path.join(start or os.getcwd(), os.path.expanduser(path)))
-
 
 class Commander:
     def __init__(self, paths=None, env=None, verbose=False):
@@ -524,9 +458,8 @@ class Commander:
 
     def _get_paths_env(self):
         if self.paths is not None:
-            return {'PATH': os.pathsep.join([str(path) for path in self.paths] + [os.environ['PATH']])}
-        else:
-            return None
+            return { 'PATH': os.pathsep.join(list(self.paths)+[os.environ['PATH']]) }
+        else: return None
 
     def _cmd(self, name, args=None, options=None, env=None, **kwargs):
         exe = which(name, self.paths)
@@ -537,16 +470,13 @@ class Commander:
 
     def __getattr__(self, name):
         c = name.replace('_', '-')
-
         def f(*args, **kwargs):
             return self._cmd(c, *args, **kwargs)
-
         return f
 
     def __getitem__(self, name):
         def f(*args, **kwargs):
             return self._cmd(name, *args, **kwargs)
-
         return f
 
     def __contains__(self, name):

@@ -1,17 +1,21 @@
-
 import os, multiprocessing, six
 
 import cget.util as util
 from cget import display
 
-
 class Builder:
     def __init__(self, prefix, top_dir, exists=False):
         self.prefix = prefix
         self.top_dir = top_dir
-        self.build_dir = self.top_dir / 'build'
+        self.build_dir = self.get_path('build')
         self.exists = exists
         self.cmake_original_file = '__cget_original_cmake_file__.cmake'
+
+    def get_path(self, *args):
+        return os.path.join(self.top_dir, *args)
+
+    def get_build_path(self, *args):
+        return self.get_path('build', *args)
 
     def get_generator(self):
         cache_file = self.get_build_path('CMakeCache.txt')
@@ -27,22 +31,19 @@ class Builder:
         generator = self.get_generator()
         if generator is not None:
             return 'Makefiles' in generator and 'NMake' not in generator
-        return (self.build_dir / 'Makefile').exists()
+        return os.path.exists(self.get_build_path('Makefile'))
 
     def cmake(self, options=None, use_toolchain=False, **kwargs):
-        if use_toolchain:
-            return self.prefix.cmd.cmake(options=util.merge({'-DCMAKE_TOOLCHAIN_FILE': self.prefix.toolchain}, options),
-                                         **kwargs)
-        else:
-            return self.prefix.cmd.cmake(options=options, **kwargs)
+        if use_toolchain: return self.prefix.cmd.cmake(options=util.merge({'-DCMAKE_TOOLCHAIN_FILE': self.prefix.toolchain}, options), **kwargs)
+        else: return self.prefix.cmd.cmake(options=options, **kwargs)
 
     def show_log(self, log):
         if self.prefix.verbose and os.path.exists(log):
             display.console.print(open(log).read())
 
     def show_logs(self):
-        self.show_log(self.build_dir / 'CMakeFiles' / 'CMakeOutput.log')
-        self.show_log(self.build_dir / 'CMakeFiles' / 'CMakeError.log')
+        self.show_log(self.get_build_path('CMakeFiles', 'CMakeOutput.log'))
+        self.show_log(self.get_build_path('CMakeFiles', 'CMakeError.log'))
 
     def targets(self):
         out = None
@@ -58,7 +59,7 @@ class Builder:
         self.prefix.log("fetch:", url)
         if insecure: url = url.replace('https', 'http')
         f = util.retrieve_url(url, self.top_dir, copy=copy, insecure=insecure, hash=hash)
-        if f.is_file():
+        if os.path.isfile(f):
             with display.status("Extracting archive..."):
                 util.extract_ar(archive=f, dst=self.top_dir)
         return next(util.get_dirs(self.top_dir))
@@ -67,8 +68,8 @@ class Builder:
         display.phase("Configuring")
         util.mkdir(self.build_dir)
         args = [
-            src_dir,
-            '-DCGET_CMAKE_DIR={}'.format(util.cget_dir('cmake')),
+            src_dir, 
+            '-DCGET_CMAKE_DIR={}'.format(util.cget_dir('cmake')), 
             '-DCGET_CMAKE_ORIGINAL_SOURCE_FILE={}'.format(os.path.join(src_dir, self.cmake_original_file))
         ]
         for d in defines or []:
@@ -76,12 +77,10 @@ class Builder:
         if generator is None: generator = os.environ.get('CGET_DEFAULT_GENERATOR')
         if generator: args = ['-G', generator] + args
         if self.prefix.verbose: args.extend(['-DCMAKE_VERBOSE_MAKEFILE=On'])
-        if test:
-            args.extend(['-DBUILD_TESTING=On'])
-        else:
-            args.extend(['-DBUILD_TESTING=Off'])
+        if test: args.extend(['-DBUILD_TESTING=On'])
+        else: args.extend(['-DBUILD_TESTING=Off'])
         args.extend(['-DCMAKE_BUILD_TYPE={}'.format(variant or 'Release')])
-        if install_prefix is not None: args.extend(['-DCMAKE_INSTALL_PREFIX=' + str(install_prefix)])
+        if install_prefix is not None: args.extend(['-DCMAKE_INSTALL_PREFIX=' + install_prefix])
         args.extend(['--no-warn-unused-cli', '-Wno-deprecated', '-Wno-dev'])
         try:
             self.cmake(args=args, cwd=self.build_dir, use_toolchain=True)
@@ -99,7 +98,7 @@ class Builder:
         args = ['--build', self.build_dir]
         if variant is not None: args.extend(['--config', variant])
         if target is not None: args.extend(['--target', target])
-        if self.is_make_generator():
+        if self.is_make_generator(): 
             args.extend(['--', '-j', str(multiprocessing.cpu_count())])
             if self.prefix.verbose: args.append('VERBOSE=1')
         self.cmake(args=args, cwd=cwd)
@@ -110,5 +109,4 @@ class Builder:
             self.build(target='check', variant=variant or 'Release')
         else:
             self.prefix.cmd.ctest((self.prefix.verbose and ['-VV'] or []) + ['-C', variant] +
-                                  ['-j', str(multiprocessing.cpu_count())] + ['--output-on-failure'],
-                                  cwd=self.build_dir)
+                                  ['-j', str(multiprocessing.cpu_count())] + ['--output-on-failure'], cwd=self.build_dir)
