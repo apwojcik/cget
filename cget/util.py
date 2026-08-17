@@ -19,7 +19,7 @@ if os.name == 'posix' and sys.version_info[0] < 3:
 else:
     import subprocess
 
-from six.moves.urllib import request
+from six.moves.urllib import request, error
 
 from cget import display
 
@@ -194,7 +194,9 @@ def rm_empty_dirs(d):
     for x in os.listdir(d):
         p = os.path.join(d, x)
         if os.path.isdir(p) and not os.path.islink(p):
-            has_files = has_files or rm_empty_dirs(p)
+            # Always recurse; `or` would short-circuit and skip removing this
+            # subdir once a non-empty sibling has set has_files.
+            if rm_empty_dirs(p): has_files = True
         else:
             has_files = True
     if not has_files: os.rmdir(d)
