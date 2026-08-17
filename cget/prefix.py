@@ -302,18 +302,18 @@ class CGetPrefix:
     def write_parent(self, pb, track=True):
         if track and pb.parent is not None: util.mkfile(self.get_deps_directory(pb.to_fname()), pb.parent, pb.parent)
 
-    def install_deps(self, pb, d, test=False, test_all=False, generator=None, insecure=False, ignore_requirements=False):
+    def install_deps(self, pb, d, test=False, test_all=False, generator=None, insecure=False, ignore_requirements=False, retries=3, retry_delay=300):
         req_txt = find_requirements_file(d) if not ignore_requirements else None
         for dependent in self.from_file(pb.requirements or req_txt, pb.pkg_src.url):
             transient = dependent.test or dependent.build
             testing = test or test_all
             installable = not dependent.test or dependent.test == testing
-            if installable: 
-                self.install(dependent.of(pb), test_all=test_all, generator=generator, track=not transient, insecure=insecure)
+            if installable:
+                self.install(dependent.of(pb), test_all=test_all, generator=generator, track=not transient, insecure=insecure, retries=retries, retry_delay=retry_delay)
 
     @returns(six.string_types)
     @params(pb=PACKAGE_SOURCE_TYPES, test=bool, test_all=bool, update=bool, track=bool)
-    def install(self, pb, test=False, test_all=False, generator=None, update=False, track=True, insecure=False):
+    def install(self, pb, test=False, test_all=False, generator=None, update=False, track=True, insecure=False, retries=3, retry_delay=300):
         pb = self.parse_pkg_build(pb)
         pkg_dir = self.get_package_directory(pb.to_fname())
         unlink_dir = self.get_unlink_directory(pb.to_fname())
@@ -331,9 +331,9 @@ class CGetPrefix:
             else: return "[yellow]![/] Package {} already installed".format(display.pkg(pb.to_name()))
         with self.create_builder(pb.pkg_src.get_hash(), tmp=True) as builder:
             # Fetch package
-            src_dir = builder.fetch(pb.pkg_src.url, pb.hash, (pb.cmake != None), insecure=insecure)
+            src_dir = builder.fetch(pb.pkg_src.url, pb.hash, (pb.cmake != None), insecure=insecure, retries=retries, retry_delay=retry_delay)
             # Install any dependencies first
-            self.install_deps(pb, src_dir, test=test, test_all=test_all, generator=generator, insecure=insecure, ignore_requirements=pb.ignore_requirements)
+            self.install_deps(pb, src_dir, test=test, test_all=test_all, generator=generator, insecure=insecure, ignore_requirements=pb.ignore_requirements, retries=retries, retry_delay=retry_delay)
             # Setup cmake file
             if pb.cmake: 
                 target = os.path.join(src_dir, 'CMakeLists.txt')

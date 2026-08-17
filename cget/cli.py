@@ -109,8 +109,10 @@ def init_command(prefix, toolchain, cc, cxx, cflags, cxxflags, ldflags, std, def
 @click.option('--release', is_flag=True, help="Install release version")
 @click.option('--build-type', help="Install custom version [Release, Debug, RelWithDebInfo or other cmake build type]")
 @click.option('--insecure', is_flag=True, help="Don't use https urls")
+@click.option('--retries', type=click.INT, default=3, help="Number of times to retry a failed download")
+@click.option('--retry-delay', type=click.INT, default=300, help="Delay in seconds between download retries")
 @click.argument('pkgs', nargs=-1, type=click.STRING)
-def install_command(prefix, pkgs, define, file, test, test_all, update, generator, cmake, debug, release, build_type, insecure):
+def install_command(prefix, pkgs, define, file, test, test_all, update, generator, cmake, debug, release, build_type, insecure, retries, retry_delay):
     """ Install packages """
     variant = get_build_type(debug, release, build_type)
     if not file and not pkgs:
@@ -122,7 +124,7 @@ def install_command(prefix, pkgs, define, file, test, test_all, update, generato
         pb = pbu.merge_defines(define)
         pb.variant = variant
         with prefix.try_("Failed to build package {}".format(pb.to_name()), on_fail=lambda: prefix.remove(pb)):
-            display.console.print(prefix.install(pb, test=test, test_all=test_all, update=update, generator=generator, insecure=insecure))
+            display.console.print(prefix.install(pb, test=test, test_all=test_all, update=update, generator=generator, insecure=insecure, retries=retries, retry_delay=retry_delay))
 
 @cli.command(name='ignore')
 @use_prefix
